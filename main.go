@@ -66,7 +66,7 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("💰 MoneyTracker Server starting on port %s", port)
+	log.Printf("MoneyTracker Server starting on port %s", port)
 	r.Run(":" + port)
 }
 
