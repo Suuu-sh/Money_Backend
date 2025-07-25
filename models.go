@@ -94,3 +94,68 @@ type DailySummary struct {
 	TotalExpense float64 `json:"totalExpense"`
 	Balance      float64 `json:"balance"`
 }
+
+// 月次予算
+type Budget struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	UserID    uint      `json:"userId"`
+	Year      int       `json:"year"`
+	Month     int       `json:"month"`
+	Amount    float64   `json:"amount"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// 固定費
+type FixedExpense struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	UserID      uint      `json:"userId"`
+	Name        string    `json:"name"`
+	Amount      float64   `json:"amount"`
+	CategoryID  *uint     `json:"categoryId,omitempty"`
+	Category    *Category `json:"category,omitempty" gorm:"foreignKey:CategoryID"`
+	Description string    `json:"description"`
+	IsActive    bool      `json:"isActive" gorm:"default:true"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// 予算分析結果
+type BudgetAnalysis struct {
+	Year              int     `json:"year"`
+	Month             int     `json:"month"`
+	MonthlyBudget     float64 `json:"monthlyBudget"`
+	TotalFixedExpenses float64 `json:"totalFixedExpenses"`
+	CurrentSpending   float64 `json:"currentSpending"`
+	RemainingBudget   float64 `json:"remainingBudget"`
+	BudgetUtilization float64 `json:"budgetUtilization"` // 使用率 (%)
+	DaysRemaining     int     `json:"daysRemaining"`
+	DailyAverage      float64 `json:"dailyAverage"`      // 1日あたり使用可能金額
+}
+
+// 予算履歴
+type BudgetHistory struct {
+	Year            int     `json:"year"`
+	Month           int     `json:"month"`
+	Budget          float64 `json:"budget"`
+	ActualSpending  float64 `json:"actualSpending"`
+	FixedExpenses   float64 `json:"fixedExpenses"`
+	SavingsRate     float64 `json:"savingsRate"`
+	BudgetExceeded  bool    `json:"budgetExceeded"`
+}
+
+// 予算設定リクエスト
+type BudgetRequest struct {
+	Year   int     `json:"year" binding:"required"`
+	Month  int     `json:"month" binding:"required,min=1,max=12"`
+	Amount float64 `json:"amount" binding:"required,min=0"`
+}
+
+// 固定費設定リクエスト
+type FixedExpenseRequest struct {
+	Name        string  `json:"name" binding:"required"`
+	Amount      float64 `json:"amount" binding:"required,min=0"`
+	CategoryID  *uint   `json:"categoryId,omitempty"`
+	Description string  `json:"description"`
+	IsActive    *bool   `json:"isActive,omitempty"`
+}

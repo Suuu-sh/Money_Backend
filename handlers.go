@@ -301,3 +301,357 @@ func getDailySummary(c *gin.Context) {
 	
 	c.JSON(http.StatusOK, summaries)
 }
+// 予算
+関連ハンドラー
+
+// 指定月の予算取得
+func getBudget(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	year, _ := strconv.Atoi(c.Param("year"))
+	month, _ := strconv.Atoi(c.Param("month"))
+	
+	var budget Budget
+	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&budget).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found"})
+		return
+	}
+	
+	c.JSON(http.StatusOK, budget)
+}
+
+// 予算設定
+func createBudget(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var req BudgetRequest
+	
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
+		return
+	}
+	
+	// 既存の予算があるかチェック
+	var existingBudget Budget
+	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, req.Year, req.Month).First(&existingBudget).Error; err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Budget already exists for this month"})
+		return
+	}
+	
+	budget := Budget{
+		UserID: userID.(uint),
+		Year:   req.Year,
+		Month:  req.Month,
+		Amount: req.Amount,
+	}
+	
+	if err := db.Create(&budget).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create budget: " + err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusCreated, budget)
+}
+
+// 予算更新
+func updateBudget(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	id := c.Param("id")
+	var budget Budget
+	
+	if err := db.Where("user_id = ?", userID).First(&budget, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found"})
+		return
+	}
+	
+	var req BudgetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
+		return
+	}
+	
+	budget.Year = req.Year
+	budget.Month = req.Month
+	budget.Amount = req.Amount
+	
+	if err := db.Save(&budget).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update budget: " + err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusOK, budget)
+}
+
+// 予算削除
+func deleteBudget(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	id := c.Param("id")
+	
+	if err := db.Where("user_id = ?", userID).Delete(&Budget{}, id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete budget: " + err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"message": "Budget deleted successfully"})
+}
+// 固定費関連ハンド
+ラー
+
+// 固定費一覧取得
+func getFixedExpenses(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var fixedExpenses []FixedExpense
+	
+	if err := db.Preload("Category").Where("user_id = ?", userID).Order("name ASC").Find(&fixedExpenses).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch fixed expenses: " + err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusOK, fixedExpenses)
+}
+
+// 固定費追加
+func createFixedExpense(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var req FixedExpenseRequest
+	
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
+		return
+	}
+	
+	fixedExpense := FixedExpense{
+		UserID:      userID.(uint),
+		Name:        req.Name,
+		Amount:      req.Amount,
+		CategoryID:  req.CategoryID,
+		Description: req.Description,
+		IsActive:    true,
+	}
+	
+	// IsActiveが明示的に設定されている場合は使用
+	if req.IsActive != nil {
+		fixedExpense.IsActive = *req.IsActive
+	}
+	
+	if err := db.Create(&fixedExpense).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create fixed expense: " + err.Error()})
+		return
+	}
+	
+	// カテゴリ情報を含めて返す
+	db.Preload("Category").First(&fixedExpense, fixedExpense.ID)
+	c.JSON(http.StatusCreated, fixedExpense)
+}
+
+// 固定費更新
+func updateFixedExpense(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	id := c.Param("id")
+	var fixedExpense FixedExpense
+	
+	if err := db.Where("user_id = ?", userID).First(&fixedExpense, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Fixed expense not found"})
+		return
+	}
+	
+	var req FixedExpenseRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
+		return
+	}
+	
+	fixedExpense.Name = req.Name
+	fixedExpense.Amount = req.Amount
+	fixedExpense.CategoryID = req.CategoryID
+	fixedExpense.Description = req.Description
+	
+	if req.IsActive != nil {
+		fixedExpense.IsActive = *req.IsActive
+	}
+	
+	if err := db.Save(&fixedExpense).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update fixed expense: " + err.Error()})
+		return
+	}
+	
+	// カテゴリ情報を含めて返す
+	db.Preload("Category").First(&fixedExpense, fixedExpense.ID)
+	c.JSON(http.StatusOK, fixedExpense)
+}
+
+// 固定費削除
+func deleteFixedExpense(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	id := c.Param("id")
+	
+	// 固定費が存在するかチェック
+	var fixedExpense FixedExpense
+	if err := db.Where("user_id = ?", userID).First(&fixedExpense, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Fixed expense not found"})
+		return
+	}
+	
+	if err := db.Delete(&fixedExpense).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete fixed expense: " + err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"message": "Fixed expense deleted successfully"})
+}// 予算分析
+関連ハンドラー
+
+// 月次予算分析
+func getBudgetAnalysis(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	year, _ := strconv.Atoi(c.Param("year"))
+	month, _ := strconv.Atoi(c.Param("month"))
+	
+	// 予算取得
+	var budget Budget
+	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&budget).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found for this month"})
+		return
+	}
+	
+	// 固定費合計取得
+	var totalFixedExpenses float64
+	db.Model(&FixedExpense{}).Where("user_id = ? AND is_active = ?", userID, true).Select("COALESCE(SUM(amount), 0)").Scan(&totalFixedExpenses)
+	
+	// 当月の支出取得
+	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
+	
+	var currentSpending float64
+	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&currentSpending)
+	
+	// 残り予算計算
+	remainingBudget := budget.Amount - totalFixedExpenses - currentSpending
+	
+	// 予算使用率計算
+	budgetUtilization := float64(0)
+	if budget.Amount > 0 {
+		budgetUtilization = ((totalFixedExpenses + currentSpending) / budget.Amount) * 100
+	}
+	
+	// 残り日数計算
+	now := time.Now()
+	var daysRemaining int
+	if now.Year() == year && int(now.Month()) == month {
+		lastDayOfMonth := startDate.AddDate(0, 1, 0).Add(-24 * time.Hour)
+		daysRemaining = int(lastDayOfMonth.Sub(now).Hours()/24) + 1
+		if daysRemaining < 0 {
+			daysRemaining = 0
+		}
+	} else {
+		daysRemaining = int(endDate.Sub(startDate).Hours()/24) + 1
+	}
+	
+	// 1日あたり使用可能金額計算
+	dailyAverage := float64(0)
+	if daysRemaining > 0 && remainingBudget > 0 {
+		dailyAverage = remainingBudget / float64(daysRemaining)
+	}
+	
+	analysis := BudgetAnalysis{
+		Year:              year,
+		Month:             month,
+		MonthlyBudget:     budget.Amount,
+		TotalFixedExpenses: totalFixedExpenses,
+		CurrentSpending:   currentSpending,
+		RemainingBudget:   remainingBudget,
+		BudgetUtilization: budgetUtilization,
+		DaysRemaining:     daysRemaining,
+		DailyAverage:      dailyAverage,
+	}
+	
+	c.JSON(http.StatusOK, analysis)
+}
+
+// 残り予算取得
+func getRemainingBudget(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	year, _ := strconv.Atoi(c.Param("year"))
+	month, _ := strconv.Atoi(c.Param("month"))
+	
+	// 予算取得
+	var budget Budget
+	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&budget).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found for this month"})
+		return
+	}
+	
+	// 固定費合計取得
+	var totalFixedExpenses float64
+	db.Model(&FixedExpense{}).Where("user_id = ? AND is_active = ?", userID, true).Select("COALESCE(SUM(amount), 0)").Scan(&totalFixedExpenses)
+	
+	// 当月の支出取得
+	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
+	
+	var currentSpending float64
+	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&currentSpending)
+	
+	// 残り予算計算
+	remainingBudget := budget.Amount - totalFixedExpenses - currentSpending
+	
+	c.JSON(http.StatusOK, gin.H{
+		"remainingBudget": remainingBudget,
+		"monthlyBudget":   budget.Amount,
+		"fixedExpenses":   totalFixedExpenses,
+		"currentSpending": currentSpending,
+	})
+}
+
+// 予算履歴取得（過去6ヶ月）
+func getBudgetHistory(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	
+	var history []BudgetHistory
+	now := time.Now()
+	
+	// 過去6ヶ月のデータを取得
+	for i := 5; i >= 0; i-- {
+		targetDate := now.AddDate(0, -i, 0)
+		year := targetDate.Year()
+		month := int(targetDate.Month())
+		
+		var budget Budget
+		var budgetAmount float64 = 0
+		if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&budget).Error; err == nil {
+			budgetAmount = budget.Amount
+		}
+		
+		// 固定費合計取得
+		var fixedExpenses float64
+		db.Model(&FixedExpense{}).Where("user_id = ? AND is_active = ?", userID, true).Select("COALESCE(SUM(amount), 0)").Scan(&fixedExpenses)
+		
+		// 実際の支出取得
+		startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+		endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
+		
+		var actualSpending float64
+		db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&actualSpending)
+		
+		// 貯蓄率計算
+		savingsRate := float64(0)
+		if budgetAmount > 0 {
+			savingsRate = ((budgetAmount - actualSpending) / budgetAmount) * 100
+		}
+		
+		// 予算超過チェック
+		budgetExceeded := actualSpending > budgetAmount && budgetAmount > 0
+		
+		historyItem := BudgetHistory{
+			Year:           year,
+			Month:          month,
+			Budget:         budgetAmount,
+			ActualSpending: actualSpending,
+			FixedExpenses:  fixedExpenses,
+			SavingsRate:    savingsRate,
+			BudgetExceeded: budgetExceeded,
+		}
+		
+		history = append(history, historyItem)
+	}
+	
+	c.JSON(http.StatusOK, history)
+}
