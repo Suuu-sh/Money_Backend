@@ -506,11 +506,11 @@ func getBudgetAnalysis(c *gin.Context) {
 	year, _ := strconv.Atoi(c.Param("year"))
 	month, _ := strconv.Atoi(c.Param("month"))
 	
-	// 予算取得
+	// 予算取得（存在しない場合は0として扱う）
 	var budget Budget
-	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&budget).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found for this month"})
-		return
+	budgetAmount := float64(0)
+	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&budget).Error; err == nil {
+		budgetAmount = budget.Amount
 	}
 	
 	// 固定費合計取得
@@ -525,12 +525,12 @@ func getBudgetAnalysis(c *gin.Context) {
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&currentSpending)
 	
 	// 残り予算計算
-	remainingBudget := budget.Amount - totalFixedExpenses - currentSpending
+	remainingBudget := budgetAmount - totalFixedExpenses - currentSpending
 	
 	// 予算使用率計算
 	budgetUtilization := float64(0)
-	if budget.Amount > 0 {
-		budgetUtilization = ((totalFixedExpenses + currentSpending) / budget.Amount) * 100
+	if budgetAmount > 0 {
+		budgetUtilization = ((totalFixedExpenses + currentSpending) / budgetAmount) * 100
 	}
 	
 	// 残り日数計算
@@ -555,7 +555,7 @@ func getBudgetAnalysis(c *gin.Context) {
 	analysis := BudgetAnalysis{
 		Year:              year,
 		Month:             month,
-		MonthlyBudget:     budget.Amount,
+		MonthlyBudget:     budgetAmount,
 		TotalFixedExpenses: totalFixedExpenses,
 		CurrentSpending:   currentSpending,
 		RemainingBudget:   remainingBudget,
