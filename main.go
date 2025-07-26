@@ -75,6 +75,13 @@ func main() {
 			protected.GET("budget/analysis/:year/:month", getBudgetAnalysis)
 			protected.GET("budget/remaining/:year/:month", getRemainingBudget)
 			protected.GET("budget/history", getBudgetHistory)
+
+			// カテゴリ別予算関連
+			protected.GET("category-budgets/:year/:month", getCategoryBudgets)
+			protected.POST("category-budgets", createCategoryBudget)
+			protected.PUT("category-budgets/:id", updateCategoryBudget)
+			protected.DELETE("category-budgets/:id", deleteCategoryBudget)
+			protected.GET("category-budgets/analysis/:year/:month", getCategoryBudgetAnalysis)
 		}
 	}
 
@@ -98,7 +105,7 @@ func initDB() {
 	}
 
 	// マイグレーション
-	db.AutoMigrate(&User{}, &Category{}, &Transaction{}, &Budget{}, &FixedExpense{})
+	db.AutoMigrate(&User{}, &Category{}, &Transaction{}, &Budget{}, &FixedExpense{}, &CategoryBudget{})
 
 	// 初期データ投入
 	seedData()

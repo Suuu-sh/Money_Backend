@@ -655,3 +655,169 @@ func getBudgetHistory(c *gin.Context) {
 	
 	c.JSON(http.StatusOK, history)
 }
+
+// カテゴリ別予算関連ハンドラー
+
+// カテゴリ別予算一覧取得
+func getCategoryBudgets(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	year, _ := strconv.Atoi(c.Param("year"))
+	month, _ := strconv.Atoi(c.Param("month"))
+	
+	var categoryBudgets []CategoryBudget
+	if err := db.Preload("Category").Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Find(&categoryBudgets).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch category budgets: " + err.Error()})
+		return
+	}
+	
+	// 各カテゴリ別予算の使用状況を計算
+	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
+	
+	for i := range categoryBudgets {
+		var spent float64
+		db.Model(&Transaction{}).Where("user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ?", 
+			userID, categoryBudgets[i].CategoryID, "expense", startDate, endDate).
+			Select("COALESCE(SUM(amount), 0)").Scan(&spent)
+		
+		categoryBudgets[i].Spent = spent
+		categoryBudgets[i].Remaining = categoryBudgets[i].Amount - spent
+		
+		if categoryBudgets[i].Amount > 0 {
+			categoryBudgets[i].UtilizationRate = (spent / categoryBudgets[i].Amount) * 100
+		}
+	}
+	
+	c.JSON(http.StatusOK, categoryBudgets)
+}
+
+// カテゴリ別予算作成
+func createCategoryBudget(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	var req CategoryBudgetRequest
+	
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
+		return
+	}
+	
+	// 既存の予算があるかチェック
+	var existingBudget CategoryBudget
+	if err := db.Where("user_id = ? AND category_id = ? AND year = ? AND month = ?", 
+		userID, req.CategoryID, req.Year, req.Month).First(&existingBudget).Error; err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Budget already exists for this category and month"})
+		return
+	}
+	
+	categoryBudget := CategoryBudget{
+		UserID:     userID.(uint),
+		CategoryID: req.CategoryID,
+		Year:       req.Year,
+		Month:      req.Month,
+		Amount:     req.Amount,
+	}
+	
+	if err := db.Create(&categoryBudget).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create category budget: " + err.Error()})
+		return
+	}
+	
+	// カテゴリ情報を含めて返す
+	db.Preload("Category").First(&categoryBudget, categoryBudget.ID)
+	c.JSON(http.StatusCreated, categoryBudget)
+}
+
+// カテゴリ別予算更新
+func updateCategoryBudget(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	id := c.Param("id")
+	var categoryBudget CategoryBudget
+	
+	if err := db.Where("user_id = ?", userID).First(&categoryBudget, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Category budget not found"})
+		return
+	}
+	
+	var req CategoryBudgetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
+		return
+	}
+	
+	categoryBudget.CategoryID = req.CategoryID
+	categoryBudget.Year = req.Year
+	categoryBudget.Month = req.Month
+	categoryBudget.Amount = req.Amount
+	
+	if err := db.Save(&categoryBudget).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update category budget: " + err.Error()})
+		return
+	}
+	
+	// カテゴリ情報を含めて返す
+	db.Preload("Category").First(&categoryBudget, categoryBudget.ID)
+	c.JSON(http.StatusOK, categoryBudget)
+}
+
+// カテゴリ別予算削除
+func deleteCategoryBudget(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	id := c.Param("id")
+	
+	if err := db.Where("user_id = ?", userID).Delete(&CategoryBudget{}, id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete category budget: " + err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"message": "Category budget deleted successfully"})
+}
+
+// カテゴリ別予算分析
+func getCategoryBudgetAnalysis(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	year, _ := strconv.Atoi(c.Param("year"))
+	month, _ := strconv.Atoi(c.Param("month"))
+	
+	// カテゴリ別予算を取得
+	var categoryBudgets []CategoryBudget
+	db.Preload("Category").Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Find(&categoryBudgets)
+	
+	var analysis []CategoryBudgetAnalysis
+	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
+	
+	for _, budget := range categoryBudgets {
+		var spentAmount float64
+		var transactionCount int64
+		
+		db.Model(&Transaction{}).Where("user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ?", 
+			userID, budget.CategoryID, "expense", startDate, endDate).
+			Select("COALESCE(SUM(amount), 0)").Scan(&spentAmount)
+		
+		db.Model(&Transaction{}).Where("user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ?", 
+			userID, budget.CategoryID, "expense", startDate, endDate).Count(&transactionCount)
+		
+		remainingAmount := budget.Amount - spentAmount
+		utilizationRate := float64(0)
+		if budget.Amount > 0 {
+			utilizationRate = (spentAmount / budget.Amount) * 100
+		}
+		
+		analysisItem := CategoryBudgetAnalysis{
+			CategoryID:       budget.CategoryID,
+			CategoryName:     budget.Category.Name,
+			CategoryColor:    budget.Category.Color,
+			CategoryIcon:     budget.Category.Icon,
+			BudgetAmount:     budget.Amount,
+			SpentAmount:      spentAmount,
+			RemainingAmount:  remainingAmount,
+			UtilizationRate:  utilizationRate,
+			IsOverBudget:     spentAmount > budget.Amount,
+			TransactionCount: transactionCount,
+		}
+		
+		analysis = append(analysis, analysisItem)
+	}
+	
+	c.JSON(http.StatusOK, analysis)
+}

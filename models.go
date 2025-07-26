@@ -159,3 +159,41 @@ type FixedExpenseRequest struct {
 	Description string  `json:"description"`
 	IsActive    *bool   `json:"isActive,omitempty"`
 }
+
+// カテゴリ別予算
+type CategoryBudget struct {
+	ID             uint      `json:"id" gorm:"primaryKey"`
+	UserID         uint      `json:"userId"`
+	CategoryID     uint      `json:"categoryId"`
+	Category       Category  `json:"category" gorm:"foreignKey:CategoryID"`
+	Year           int       `json:"year"`
+	Month          int       `json:"month"`
+	Amount         float64   `json:"amount"`
+	Spent          float64   `json:"spent" gorm:"-"` // 計算フィールド
+	Remaining      float64   `json:"remaining" gorm:"-"` // 計算フィールド
+	UtilizationRate float64  `json:"utilizationRate" gorm:"-"` // 計算フィールド
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+// カテゴリ別予算リクエスト
+type CategoryBudgetRequest struct {
+	CategoryID uint    `json:"categoryId" binding:"required"`
+	Year       int     `json:"year" binding:"required"`
+	Month      int     `json:"month" binding:"required,min=1,max=12"`
+	Amount     float64 `json:"amount" binding:"required,min=0"`
+}
+
+// カテゴリ別予算分析
+type CategoryBudgetAnalysis struct {
+	CategoryID       uint    `json:"categoryId"`
+	CategoryName     string  `json:"categoryName"`
+	CategoryColor    string  `json:"categoryColor"`
+	CategoryIcon     string  `json:"categoryIcon"`
+	BudgetAmount     float64 `json:"budgetAmount"`
+	SpentAmount      float64 `json:"spentAmount"`
+	RemainingAmount  float64 `json:"remainingAmount"`
+	UtilizationRate  float64 `json:"utilizationRate"`
+	IsOverBudget     bool    `json:"isOverBudget"`
+	TransactionCount int64   `json:"transactionCount"`
+}
