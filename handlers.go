@@ -301,8 +301,8 @@ func getDailySummary(c *gin.Context) {
 	
 	c.JSON(http.StatusOK, summaries)
 }
-// 予算
-関連ハンドラー
+
+// 予算関連ハンドラー
 
 // 指定月の予算取得
 func getBudget(c *gin.Context) {
@@ -392,8 +392,8 @@ func deleteBudget(c *gin.Context) {
 	
 	c.JSON(http.StatusOK, gin.H{"message": "Budget deleted successfully"})
 }
-// 固定費関連ハンド
-ラー
+
+// 固定費関連ハンドラー
 
 // 固定費一覧取得
 func getFixedExpenses(c *gin.Context) {
@@ -496,8 +496,9 @@ func deleteFixedExpense(c *gin.Context) {
 	}
 	
 	c.JSON(http.StatusOK, gin.H{"message": "Fixed expense deleted successfully"})
-}// 予算分析
-関連ハンドラー
+}
+
+// 予算分析関連ハンドラー
 
 // 月次予算分析
 func getBudgetAnalysis(c *gin.Context) {
