@@ -506,11 +506,18 @@ func getBudgetAnalysis(c *gin.Context) {
 	year, _ := strconv.Atoi(c.Param("year"))
 	month, _ := strconv.Atoi(c.Param("month"))
 	
-	// 予算取得（存在しない場合は0として扱う）
+	// 予算取得（存在しない場合はカテゴリ別予算の合計を使用）
 	var budget Budget
 	budgetAmount := float64(0)
 	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&budget).Error; err == nil {
 		budgetAmount = budget.Amount
+	}
+	
+	// 月次予算が設定されていない場合、カテゴリ別予算の合計を使用
+	if budgetAmount == 0 {
+		var categoryBudgetTotal float64
+		db.Model(&CategoryBudget{}).Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Select("COALESCE(SUM(amount), 0)").Scan(&categoryBudgetTotal)
+		budgetAmount = categoryBudgetTotal
 	}
 	
 	// 固定費合計取得
