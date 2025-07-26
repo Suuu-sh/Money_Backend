@@ -108,16 +108,19 @@ type Budget struct {
 
 // 固定費
 type FixedExpense struct {
-	ID          uint      `json:"id" gorm:"primaryKey"`
-	UserID      uint      `json:"userId"`
-	Name        string    `json:"name"`
-	Amount      float64   `json:"amount"`
-	CategoryID  *uint     `json:"categoryId,omitempty"`
-	Category    *Category `json:"category,omitempty" gorm:"foreignKey:CategoryID"`
-	Description string    `json:"description"`
-	IsActive    bool      `json:"isActive" gorm:"default:true"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID              uint      `json:"id" gorm:"primaryKey"`
+	UserID          uint      `json:"userId"`
+	Name            string    `json:"name"`
+	Amount          float64   `json:"amount"`
+	CategoryID      *uint     `json:"categoryId,omitempty"`
+	Category        *Category `json:"category,omitempty" gorm:"foreignKey:CategoryID"`
+	Description     string    `json:"description"`
+	IsActive        bool      `json:"isActive" gorm:"default:true"`
+	AutoRegister    bool      `json:"autoRegister" gorm:"default:false"`
+	RegisterDay     int       `json:"registerDay" gorm:"default:1"`
+	LastRegistered  *time.Time `json:"lastRegistered,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 // 予算分析結果
