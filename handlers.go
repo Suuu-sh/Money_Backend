@@ -539,24 +539,24 @@ func getBudgetAnalysis(c *gin.Context) {
 		budgetAmount = categoryBudgetTotal
 	}
 	
-	// 固定費合計取得
-	var totalFixedExpenses float64
-	db.Model(&FixedExpense{}).Where("user_id = ? AND is_active = ?", userID, true).Select("COALESCE(SUM(amount), 0)").Scan(&totalFixedExpenses)
-	
-	// 当月の支出取得
+	// 当月の支出取得（固定費から自動生成された取引も含む）
 	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
 	
 	var currentSpending float64
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&currentSpending)
 	
-	// 残り予算計算
-	remainingBudget := budgetAmount - totalFixedExpenses - currentSpending
+	// 固定費合計取得（表示用）
+	var totalFixedExpenses float64
+	db.Model(&FixedExpense{}).Where("user_id = ? AND is_active = ?", userID, true).Select("COALESCE(SUM(amount), 0)").Scan(&totalFixedExpenses)
+	
+	// 残り予算計算（固定費は既にcurrentSpendingに含まれているので重複計算しない）
+	remainingBudget := budgetAmount - currentSpending
 	
 	// 予算使用率計算
 	budgetUtilization := float64(0)
 	if budgetAmount > 0 {
-		budgetUtilization = ((totalFixedExpenses + currentSpending) / budgetAmount) * 100
+		budgetUtilization = (currentSpending / budgetAmount) * 100
 	}
 	
 	// 残り日数計算
