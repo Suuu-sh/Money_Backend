@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -435,6 +436,24 @@ func createFixedExpense(c *gin.Context) {
 	if err := db.Create(&fixedExpense).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create fixed expense: " + err.Error()})
 		return
+	}
+	
+	// 固定費作成時に自動的に取引を生成
+	if fixedExpense.CategoryID != nil {
+		now := time.Now()
+		transaction := Transaction{
+			UserID:      userID.(uint),
+			Type:        "expense",
+			Amount:      fixedExpense.Amount,
+			CategoryID:  *fixedExpense.CategoryID,
+			Description: "固定費: " + fixedExpense.Name,
+			Date:        now,
+		}
+		
+		if err := db.Create(&transaction).Error; err != nil {
+			// 取引作成に失敗してもエラーにはしない（ログに記録）
+			log.Printf("Failed to create transaction for fixed expense: %v", err)
+		}
 	}
 	
 	// カテゴリ情報を含めて返す
