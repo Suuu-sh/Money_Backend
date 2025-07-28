@@ -868,6 +868,12 @@ func getCategoryBudgetAnalysis(c *gin.Context) {
 	var categoryBudgets []CategoryBudget
 	db.Preload("Category").Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Find(&categoryBudgets)
 	
+	// 予算が設定されていない場合は空の配列を返す
+	if len(categoryBudgets) == 0 {
+		c.JSON(http.StatusOK, []CategoryBudgetAnalysis{})
+		return
+	}
+	
 	var analysis []CategoryBudgetAnalysis
 	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
