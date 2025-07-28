@@ -496,31 +496,6 @@ func createFixedExpense(c *gin.Context) {
 		return
 	}
 	
-	// 固定収支作成時に自動的に取引を生成
-	if fixedExpense.CategoryID != nil {
-		now := time.Now()
-		description := "固定収支: " + fixedExpense.Name
-		if fixedExpense.Type == "income" {
-			description = "固定収入: " + fixedExpense.Name
-		} else {
-			description = "固定支出: " + fixedExpense.Name
-		}
-		
-		transaction := Transaction{
-			UserID:      userID.(uint),
-			Type:        fixedExpense.Type, // 固定収支のタイプを使用
-			Amount:      fixedExpense.Amount,
-			CategoryID:  *fixedExpense.CategoryID,
-			Description: description,
-			Date:        now,
-		}
-		
-		if err := db.Create(&transaction).Error; err != nil {
-			// 取引作成に失敗してもエラーにはしない（ログに記録）
-			log.Printf("Failed to create transaction for fixed transaction: %v", err)
-		}
-	}
-	
 	// カテゴリ情報を含めて返す
 	db.Preload("Category").First(&fixedExpense, fixedExpense.ID)
 	c.JSON(http.StatusCreated, fixedExpense)
@@ -575,6 +550,24 @@ func deleteFixedExpense(c *gin.Context) {
 		return
 	}
 	
+	// 固定費から自動生成された取引を削除
+	if fixedExpense.CategoryID != nil {
+		// 固定費から生成された取引を特定して削除
+		var description string
+		if fixedExpense.Type == "income" {
+			description = "固定収入: " + fixedExpense.Name
+		} else {
+			description = "固定支出: " + fixedExpense.Name
+		}
+		
+		// 関連する自動生成取引を削除
+		if err := db.Where("user_id = ? AND category_id = ? AND type = ? AND description = ?", 
+			userID, *fixedExpense.CategoryID, fixedExpense.Type, description).Delete(&Transaction{}).Error; err != nil {
+			log.Printf("Failed to delete related transactions for fixed expense %d: %v", fixedExpense.ID, err)
+		}
+	}
+	
+	// 固定費を削除
 	if err := db.Delete(&fixedExpense).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete fixed expense: " + err.Error()})
 		return
