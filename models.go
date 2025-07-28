@@ -112,6 +112,7 @@ type FixedExpense struct {
 	UserID          uint      `json:"userId"`
 	Name            string    `json:"name"`
 	Amount          float64   `json:"amount"`
+	Type            string    `json:"type" gorm:"default:expense"` // income, expense
 	CategoryID      *uint     `json:"categoryId,omitempty"`
 	Category        *Category `json:"category,omitempty" gorm:"foreignKey:CategoryID"`
 	Description     string    `json:"description"`
@@ -158,6 +159,17 @@ type BudgetRequest struct {
 type FixedExpenseRequest struct {
 	Name        string  `json:"name" binding:"required"`
 	Amount      float64 `json:"amount" binding:"required,min=0"`
+	Type        string  `json:"type" binding:"required,oneof=income expense"`
+	CategoryID  *uint   `json:"categoryId,omitempty"`
+	Description string  `json:"description"`
+	IsActive    *bool   `json:"isActive,omitempty"`
+}
+
+// 固定収支設定リクエスト（固定費と同じ構造）
+type FixedTransactionRequest struct {
+	Name        string  `json:"name" binding:"required"`
+	Amount      float64 `json:"amount" binding:"required,min=0"`
+	Type        string  `json:"type" binding:"required,oneof=income expense"`
 	CategoryID  *uint   `json:"categoryId,omitempty"`
 	Description string  `json:"description"`
 	IsActive    *bool   `json:"isActive,omitempty"`
