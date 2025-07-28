@@ -303,6 +303,12 @@ func getCategorySummary(c *gin.Context) {
 	var summaries []CategorySummary
 	db.Raw(query, args...).Scan(&summaries)
 	
+	// デバッグログ - 初期のサマリー状態
+	log.Printf("Initial summaries count: %d for user %v, type %s", len(summaries), userID, transactionType)
+	for _, s := range summaries {
+		log.Printf("Initial summary - Category: %s (ID: %d), Amount: %f", s.CategoryName, s.CategoryID, s.TotalAmount)
+	}
+	
 	// 固定費を追加で集計（アクティブな固定費のみ）
 	var fixedExpenses []FixedExpense
 	fixedQuery := db.Preload("Category").Where("user_id = ? AND type = ? AND is_active = ?", userID, transactionType, true)
@@ -312,6 +318,9 @@ func getCategorySummary(c *gin.Context) {
 	log.Printf("Fixed expenses found: %d for user %v, type %s", len(fixedExpenses), userID, transactionType)
 	for _, fe := range fixedExpenses {
 		log.Printf("Fixed expense: %s, Amount: %f, CategoryID: %v", fe.Name, fe.Amount, fe.CategoryID)
+		if fe.Category != nil {
+			log.Printf("  Category details: Name=%s, Type=%s", fe.Category.Name, fe.Category.Type)
+		}
 	}
 	
 	// 固定費を既存のカテゴリサマリーに追加
