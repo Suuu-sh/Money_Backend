@@ -205,31 +205,18 @@ func getStats(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	var stats Stats
 	
-	// 通常の取引からの集計
+	// 通常の取引からの集計（固定費から自動生成された取引も含む）
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ?", userID, "income").Select("COALESCE(SUM(amount), 0)").Scan(&stats.TotalIncome)
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ?", userID, "expense").Select("COALESCE(SUM(amount), 0)").Scan(&stats.TotalExpense)
-	
-	// 固定費を追加（アクティブな固定費のみ）
-	var fixedIncome float64
-	var fixedExpense float64
-	db.Model(&FixedExpense{}).Where("user_id = ? AND type = ? AND is_active = ?", userID, "income", true).Select("COALESCE(SUM(amount), 0)").Scan(&fixedIncome)
-	db.Model(&FixedExpense{}).Where("user_id = ? AND type = ? AND is_active = ?", userID, "expense", true).Select("COALESCE(SUM(amount), 0)").Scan(&fixedExpense)
-	
-	stats.TotalIncome += fixedIncome
-	stats.TotalExpense += fixedExpense
 	stats.CurrentBalance = stats.TotalIncome - stats.TotalExpense
 	
 	now := time.Now()
 	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Second)
 	
-	// 今月の取引
+	// 今月の取引（固定費から自動生成された取引も含む）
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "income", startOfMonth, endOfMonth).Select("COALESCE(SUM(amount), 0)").Scan(&stats.ThisMonthIncome)
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startOfMonth, endOfMonth).Select("COALESCE(SUM(amount), 0)").Scan(&stats.ThisMonthExpense)
-	
-	// 今月の固定費を追加
-	stats.ThisMonthIncome += fixedIncome
-	stats.ThisMonthExpense += fixedExpense
 	
 	db.Model(&Transaction{}).Where("user_id = ?", userID).Count(&stats.TransactionCount)
 	
@@ -250,18 +237,9 @@ func getMonthlySummary(c *gin.Context) {
 		summary.Year = year
 		summary.Month = month
 		
-		// 通常の取引からの集計
+		// 通常の取引からの集計（固定費から自動生成された取引も含む）
 		db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "income", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&summary.TotalIncome)
 		db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&summary.TotalExpense)
-		
-		// 固定費を追加（アクティブな固定費のみ）
-		var fixedIncome float64
-		var fixedExpense float64
-		db.Model(&FixedExpense{}).Where("user_id = ? AND type = ? AND is_active = ?", userID, "income", true).Select("COALESCE(SUM(amount), 0)").Scan(&fixedIncome)
-		db.Model(&FixedExpense{}).Where("user_id = ? AND type = ? AND is_active = ?", userID, "expense", true).Select("COALESCE(SUM(amount), 0)").Scan(&fixedExpense)
-		
-		summary.TotalIncome += fixedIncome
-		summary.TotalExpense += fixedExpense
 		summary.Balance = summary.TotalIncome - summary.TotalExpense
 		
 		summaries = append(summaries, summary)
@@ -276,7 +254,7 @@ func getCategorySummary(c *gin.Context) {
 	startDate := c.Query("startDate")
 	endDate := c.Query("endDate")
 	
-	// 通常の取引からの集計
+	// 通常の取引からの集計（固定費から自動生成された取引も含む）
 	query := `
 		SELECT 
 			c.id as category_id,
@@ -303,69 +281,10 @@ func getCategorySummary(c *gin.Context) {
 	var summaries []CategorySummary
 	db.Raw(query, args...).Scan(&summaries)
 	
-	// デバッグログ - 初期のサマリー状態
-	log.Printf("Initial summaries count: %d for user %v, type %s", len(summaries), userID, transactionType)
-	for _, s := range summaries {
-		log.Printf("Initial summary - Category: %s (ID: %d), Amount: %f", s.CategoryName, s.CategoryID, s.TotalAmount)
-	}
-	
-	// 固定費を追加で集計（アクティブな固定費のみ）
-	var fixedExpenses []FixedExpense
-	fixedQuery := db.Preload("Category").Where("user_id = ? AND type = ? AND is_active = ?", userID, transactionType, true)
-	fixedQuery.Find(&fixedExpenses)
-	
 	// デバッグログ
-	log.Printf("Fixed expenses found: %d for user %v, type %s", len(fixedExpenses), userID, transactionType)
-	for _, fe := range fixedExpenses {
-		log.Printf("Fixed expense: %s, Amount: %f, CategoryID: %v", fe.Name, fe.Amount, fe.CategoryID)
-		if fe.Category != nil {
-			log.Printf("  Category details: Name=%s, Type=%s", fe.Category.Name, fe.Category.Type)
-		}
-	}
-	
-	// 固定費を既存のカテゴリサマリーに追加
-	for _, fixedExpense := range fixedExpenses {
-		if fixedExpense.CategoryID != nil {
-			log.Printf("Processing fixed expense: %s with category ID: %d", fixedExpense.Name, *fixedExpense.CategoryID)
-			
-			// 既存のカテゴリサマリーを検索
-			found := false
-			for i := range summaries {
-				if summaries[i].CategoryID == *fixedExpense.CategoryID {
-					log.Printf("Adding fixed expense %s (%f) to existing category %s", fixedExpense.Name, fixedExpense.Amount, summaries[i].CategoryName)
-					summaries[i].TotalAmount += fixedExpense.Amount
-					summaries[i].Count += 1
-					found = true
-					break
-				}
-			}
-			
-			// カテゴリが見つからない場合は新しく追加
-			if !found && fixedExpense.Category != nil {
-				log.Printf("Creating new category summary for fixed expense: %s", fixedExpense.Name)
-				newSummary := CategorySummary{
-					CategoryID:    *fixedExpense.CategoryID,
-					CategoryName:  fixedExpense.Category.Name,
-					CategoryIcon:  fixedExpense.Category.Icon,
-					CategoryColor: fixedExpense.Category.Color,
-					Type:          fixedExpense.Type,
-					TotalAmount:   fixedExpense.Amount,
-					Count:         1,
-				}
-				summaries = append(summaries, newSummary)
-			}
-		} else {
-			log.Printf("Fixed expense %s has no category ID", fixedExpense.Name)
-		}
-	}
-	
-	// 金額順でソート
-	for i := 0; i < len(summaries)-1; i++ {
-		for j := i + 1; j < len(summaries); j++ {
-			if summaries[i].TotalAmount < summaries[j].TotalAmount {
-				summaries[i], summaries[j] = summaries[j], summaries[i]
-			}
-		}
+	log.Printf("Category summaries for user %v, type %s: %d categories", userID, transactionType, len(summaries))
+	for _, s := range summaries {
+		log.Printf("Category: %s (ID: %d), Amount: %f, Count: %d", s.CategoryName, s.CategoryID, s.TotalAmount, s.Count)
 	}
 	
 	c.JSON(http.StatusOK, summaries)
