@@ -308,13 +308,22 @@ func getCategorySummary(c *gin.Context) {
 	fixedQuery := db.Preload("Category").Where("user_id = ? AND type = ? AND is_active = ?", userID, transactionType, true)
 	fixedQuery.Find(&fixedExpenses)
 	
+	// デバッグログ
+	log.Printf("Fixed expenses found: %d for user %v, type %s", len(fixedExpenses), userID, transactionType)
+	for _, fe := range fixedExpenses {
+		log.Printf("Fixed expense: %s, Amount: %f, CategoryID: %v", fe.Name, fe.Amount, fe.CategoryID)
+	}
+	
 	// 固定費を既存のカテゴリサマリーに追加
 	for _, fixedExpense := range fixedExpenses {
 		if fixedExpense.CategoryID != nil {
+			log.Printf("Processing fixed expense: %s with category ID: %d", fixedExpense.Name, *fixedExpense.CategoryID)
+			
 			// 既存のカテゴリサマリーを検索
 			found := false
 			for i := range summaries {
 				if summaries[i].CategoryID == *fixedExpense.CategoryID {
+					log.Printf("Adding fixed expense %s (%f) to existing category %s", fixedExpense.Name, fixedExpense.Amount, summaries[i].CategoryName)
 					summaries[i].TotalAmount += fixedExpense.Amount
 					summaries[i].Count += 1
 					found = true
@@ -324,6 +333,7 @@ func getCategorySummary(c *gin.Context) {
 			
 			// カテゴリが見つからない場合は新しく追加
 			if !found && fixedExpense.Category != nil {
+				log.Printf("Creating new category summary for fixed expense: %s", fixedExpense.Name)
 				newSummary := CategorySummary{
 					CategoryID:    *fixedExpense.CategoryID,
 					CategoryName:  fixedExpense.Category.Name,
@@ -335,6 +345,8 @@ func getCategorySummary(c *gin.Context) {
 				}
 				summaries = append(summaries, newSummary)
 			}
+		} else {
+			log.Printf("Fixed expense %s has no category ID", fixedExpense.Name)
 		}
 	}
 	
