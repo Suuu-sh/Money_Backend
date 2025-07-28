@@ -113,8 +113,8 @@ type FixedExpense struct {
 	Name            string    `json:"name"`
 	Amount          float64   `json:"amount"`
 	Type            string    `json:"type" gorm:"default:expense"` // income, expense
-	CategoryID      *uint     `json:"categoryId,omitempty"`
-	Category        *Category `json:"category,omitempty" gorm:"foreignKey:CategoryID"`
+	CategoryID      uint      `json:"categoryId"`
+	Category        Category  `json:"category" gorm:"foreignKey:CategoryID"`
 	Description     string    `json:"description"`
 	IsActive        bool      `json:"isActive" gorm:"default:true"`
 	AutoRegister    bool      `json:"autoRegister" gorm:"default:false"`
@@ -160,7 +160,7 @@ type FixedExpenseRequest struct {
 	Name        string  `json:"name" binding:"required"`
 	Amount      float64 `json:"amount" binding:"required,min=0"`
 	Type        string  `json:"type" binding:"required,oneof=income expense"`
-	CategoryID  *uint   `json:"categoryId,omitempty"`
+	CategoryID  uint    `json:"categoryId" binding:"required"`
 	Description string  `json:"description"`
 	IsActive    *bool   `json:"isActive,omitempty"`
 }
@@ -170,7 +170,7 @@ type FixedTransactionRequest struct {
 	Name        string  `json:"name" binding:"required"`
 	Amount      float64 `json:"amount" binding:"required,min=0"`
 	Type        string  `json:"type" binding:"required,oneof=income expense"`
-	CategoryID  *uint   `json:"categoryId,omitempty"`
+	CategoryID  uint    `json:"categoryId" binding:"required"`
 	Description string  `json:"description"`
 	IsActive    *bool   `json:"isActive,omitempty"`
 }

@@ -454,44 +454,42 @@ func createFixedExpense(c *gin.Context) {
 	}
 	
 	// 固定費作成時に今月の取引を生成（重複チェック付き）
-	if fixedExpense.CategoryID != nil {
-		now := time.Now()
-		startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-		endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Second)
-		
-		description := "固定収支: " + fixedExpense.Name
-		if fixedExpense.Type == "income" {
-			description = "固定収入: " + fixedExpense.Name
-		} else {
-			description = "固定支出: " + fixedExpense.Name
+	now := time.Now()
+	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Second)
+	
+	description := "固定収支: " + fixedExpense.Name
+	if fixedExpense.Type == "income" {
+		description = "固定収入: " + fixedExpense.Name
+	} else {
+		description = "固定支出: " + fixedExpense.Name
+	}
+	
+	// 今月に同じカテゴリ・同じ金額・同じタイプの取引が既に存在するかチェック
+	var existingCount int64
+	db.Model(&Transaction{}).Where(
+		"user_id = ? AND category_id = ? AND type = ? AND amount = ? AND date BETWEEN ? AND ?",
+		userID, fixedExpense.CategoryID, fixedExpense.Type, fixedExpense.Amount, startOfMonth, endOfMonth,
+	).Count(&existingCount)
+	
+	// 既存の取引がない場合のみ新しい取引を生成
+	if existingCount == 0 {
+		transaction := Transaction{
+			UserID:      userID.(uint),
+			Type:        fixedExpense.Type,
+			Amount:      fixedExpense.Amount,
+			CategoryID:  fixedExpense.CategoryID,
+			Description: description,
+			Date:        startOfMonth,
 		}
 		
-		// 今月に同じカテゴリ・同じ金額・同じタイプの取引が既に存在するかチェック
-		var existingCount int64
-		db.Model(&Transaction{}).Where(
-			"user_id = ? AND category_id = ? AND type = ? AND amount = ? AND date BETWEEN ? AND ?",
-			userID, *fixedExpense.CategoryID, fixedExpense.Type, fixedExpense.Amount, startOfMonth, endOfMonth,
-		).Count(&existingCount)
-		
-		// 既存の取引がない場合のみ新しい取引を生成
-		if existingCount == 0 {
-			transaction := Transaction{
-				UserID:      userID.(uint),
-				Type:        fixedExpense.Type,
-				Amount:      fixedExpense.Amount,
-				CategoryID:  *fixedExpense.CategoryID,
-				Description: description,
-				Date:        startOfMonth,
-			}
-			
-			if err := db.Create(&transaction).Error; err != nil {
-				log.Printf("Failed to create transaction for fixed expense: %v", err)
-			} else {
-				log.Printf("Created transaction for fixed expense: %s, amount: %f", fixedExpense.Name, fixedExpense.Amount)
-			}
+		if err := db.Create(&transaction).Error; err != nil {
+			log.Printf("Failed to create transaction for fixed expense: %v", err)
 		} else {
-			log.Printf("Skipping transaction creation for fixed expense: %s (similar transaction already exists)", fixedExpense.Name)
+			log.Printf("Created transaction for fixed expense: %s, amount: %f", fixedExpense.Name, fixedExpense.Amount)
 		}
+	} else {
+		log.Printf("Skipping transaction creation for fixed expense: %s (similar transaction already exists)", fixedExpense.Name)
 	}
 	
 	// カテゴリ情報を含めて返す
@@ -549,20 +547,17 @@ func deleteFixedExpense(c *gin.Context) {
 	}
 	
 	// 固定費から自動生成された取引を削除
-	if fixedExpense.CategoryID != nil {
-		// 固定費から生成された取引を特定して削除
-		var description string
-		if fixedExpense.Type == "income" {
-			description = "固定収入: " + fixedExpense.Name
-		} else {
-			description = "固定支出: " + fixedExpense.Name
-		}
-		
-		// 関連する自動生成取引を削除
-		if err := db.Where("user_id = ? AND category_id = ? AND type = ? AND description = ?", 
-			userID, *fixedExpense.CategoryID, fixedExpense.Type, description).Delete(&Transaction{}).Error; err != nil {
-			log.Printf("Failed to delete related transactions for fixed expense %d: %v", fixedExpense.ID, err)
-		}
+	var description string
+	if fixedExpense.Type == "income" {
+		description = "固定収入: " + fixedExpense.Name
+	} else {
+		description = "固定支出: " + fixedExpense.Name
+	}
+	
+	// 関連する自動生成取引を削除
+	if err := db.Where("user_id = ? AND category_id = ? AND type = ? AND description = ?", 
+		userID, fixedExpense.CategoryID, fixedExpense.Type, description).Delete(&Transaction{}).Error; err != nil {
+		log.Printf("Failed to delete related transactions for fixed expense %d: %v", fixedExpense.ID, err)
 	}
 	
 	// 固定費を削除
