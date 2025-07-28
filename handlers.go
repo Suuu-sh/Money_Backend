@@ -21,6 +21,25 @@ func getTransactions(c *gin.Context) {
 	startDate := c.Query("startDate")
 	endDate := c.Query("endDate")
 	
+	// 固定費から月次取引を自動生成
+	if startDate != "" && endDate != "" {
+		start, _ := time.Parse("2006-01-02", startDate)
+		end, _ := time.Parse("2006-01-02", endDate)
+		
+		// 期間内の各月について固定費から取引を生成
+		current := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, time.UTC)
+		endMonth := time.Date(end.Year(), end.Month(), 1, 0, 0, 0, 0, time.UTC)
+		
+		for current.Before(endMonth) || current.Equal(endMonth) {
+			generateMonthlyTransactionsFromFixedExpenses(userID.(uint), current.Year(), int(current.Month()))
+			current = current.AddDate(0, 1, 0)
+		}
+	} else {
+		// 期間が指定されていない場合は今月のみ
+		now := time.Now()
+		generateMonthlyTransactionsFromFixedExpenses(userID.(uint), now.Year(), int(now.Month()))
+	}
+	
 	query := db.Preload("Category").Where("user_id = ?", userID).Order("date DESC, created_at DESC")
 	
 	if transactionType != "" {
@@ -227,6 +246,11 @@ func getMonthlySummary(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	year, _ := strconv.Atoi(c.DefaultQuery("year", strconv.Itoa(time.Now().Year())))
 	
+	// 各月について固定費から取引を自動生成
+	for month := 1; month <= 12; month++ {
+		generateMonthlyTransactionsFromFixedExpenses(userID.(uint), year, month)
+	}
+	
 	var summaries []MonthlySummary
 	
 	for month := 1; month <= 12; month++ {
@@ -253,6 +277,25 @@ func getCategorySummary(c *gin.Context) {
 	transactionType := c.DefaultQuery("type", "expense")
 	startDate := c.Query("startDate")
 	endDate := c.Query("endDate")
+	
+	// 固定費から月次取引を自動生成（指定期間内の各月）
+	if startDate != "" && endDate != "" {
+		start, _ := time.Parse("2006-01-02", startDate)
+		end, _ := time.Parse("2006-01-02", endDate)
+		
+		// 期間内の各月について固定費から取引を生成
+		current := time.Date(start.Year(), start.Month(), 1, 0, 0, 0, 0, time.UTC)
+		endMonth := time.Date(end.Year(), end.Month(), 1, 0, 0, 0, 0, time.UTC)
+		
+		for current.Before(endMonth) || current.Equal(endMonth) {
+			generateMonthlyTransactionsFromFixedExpenses(userID.(uint), current.Year(), int(current.Month()))
+			current = current.AddDate(0, 1, 0)
+		}
+	} else {
+		// 期間が指定されていない場合は今月のみ
+		now := time.Now()
+		generateMonthlyTransactionsFromFixedExpenses(userID.(uint), now.Year(), int(now.Month()))
+	}
 	
 	// 通常の取引からの集計（固定費から自動生成された取引も含む）
 	query := `
@@ -538,6 +581,61 @@ func deleteFixedExpense(c *gin.Context) {
 	}
 	
 	c.JSON(http.StatusOK, gin.H{"message": "Fixed expense deleted successfully"})
+}
+
+// 固定費から月次取引を自動生成
+func generateMonthlyTransactionsFromFixedExpenses(userID uint, year int, month int) error {
+	// 指定月の開始日と終了日
+	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
+	
+	// アクティブな固定費を取得
+	var fixedExpenses []FixedExpense
+	if err := db.Where("user_id = ? AND is_active = ?", userID, true).Find(&fixedExpenses).Error; err != nil {
+		return err
+	}
+	
+	for _, fixedExpense := range fixedExpenses {
+		if fixedExpense.CategoryID == nil {
+			continue
+		}
+		
+		// この月にすでに固定費からの取引が存在するかチェック
+		var existingCount int64
+		db.Model(&Transaction{}).Where(
+			"user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ? AND description LIKE ?",
+			userID, *fixedExpense.CategoryID, fixedExpense.Type, startDate, endDate,
+			"固定%: "+fixedExpense.Name,
+		).Count(&existingCount)
+		
+		// すでに存在する場合はスキップ
+		if existingCount > 0 {
+			continue
+		}
+		
+		// 固定費から取引を生成
+		description := "固定収支: " + fixedExpense.Name
+		if fixedExpense.Type == "income" {
+			description = "固定収入: " + fixedExpense.Name
+		} else {
+			description = "固定支出: " + fixedExpense.Name
+		}
+		
+		transaction := Transaction{
+			UserID:      userID,
+			Type:        fixedExpense.Type,
+			Amount:      fixedExpense.Amount,
+			CategoryID:  *fixedExpense.CategoryID,
+			Description: description,
+			Date:        startDate, // 月初に設定
+		}
+		
+		if err := db.Create(&transaction).Error; err != nil {
+			log.Printf("Failed to create monthly transaction for fixed expense %d: %v", fixedExpense.ID, err)
+		}
+	}
+	
+	return nil
 }
 
 // 予算分析関連ハンドラー
