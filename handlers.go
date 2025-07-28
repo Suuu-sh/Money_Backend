@@ -453,10 +453,11 @@ func createFixedExpense(c *gin.Context) {
 		return
 	}
 	
-	// 固定費作成時に今月の取引を生成
+	// 固定費作成時に今月の取引を生成（重複チェック付き）
 	if fixedExpense.CategoryID != nil {
 		now := time.Now()
 		startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Second)
 		
 		description := "固定収支: " + fixedExpense.Name
 		if fixedExpense.Type == "income" {
@@ -465,17 +466,31 @@ func createFixedExpense(c *gin.Context) {
 			description = "固定支出: " + fixedExpense.Name
 		}
 		
-		transaction := Transaction{
-			UserID:      userID.(uint),
-			Type:        fixedExpense.Type,
-			Amount:      fixedExpense.Amount,
-			CategoryID:  *fixedExpense.CategoryID,
-			Description: description,
-			Date:        startOfMonth,
-		}
+		// 今月に同じカテゴリ・同じ金額・同じタイプの取引が既に存在するかチェック
+		var existingCount int64
+		db.Model(&Transaction{}).Where(
+			"user_id = ? AND category_id = ? AND type = ? AND amount = ? AND date BETWEEN ? AND ?",
+			userID, *fixedExpense.CategoryID, fixedExpense.Type, fixedExpense.Amount, startOfMonth, endOfMonth,
+		).Count(&existingCount)
 		
-		if err := db.Create(&transaction).Error; err != nil {
-			log.Printf("Failed to create transaction for fixed expense: %v", err)
+		// 既存の取引がない場合のみ新しい取引を生成
+		if existingCount == 0 {
+			transaction := Transaction{
+				UserID:      userID.(uint),
+				Type:        fixedExpense.Type,
+				Amount:      fixedExpense.Amount,
+				CategoryID:  *fixedExpense.CategoryID,
+				Description: description,
+				Date:        startOfMonth,
+			}
+			
+			if err := db.Create(&transaction).Error; err != nil {
+				log.Printf("Failed to create transaction for fixed expense: %v", err)
+			} else {
+				log.Printf("Created transaction for fixed expense: %s, amount: %f", fixedExpense.Name, fixedExpense.Amount)
+			}
+		} else {
+			log.Printf("Skipping transaction creation for fixed expense: %s (similar transaction already exists)", fixedExpense.Name)
 		}
 	}
 	
