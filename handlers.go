@@ -510,6 +510,10 @@ func createFixedExpense(c *gin.Context) {
 		return
 	}
 	
+	// デバッグログ
+	log.Printf("Creating fixed expense - Name: %s, Amount: %f, Type: %s, CategoryID: %v", 
+		req.Name, req.Amount, req.Type, req.CategoryID)
+	
 	fixedExpense := FixedExpense{
 		UserID:      userID.(uint),
 		Name:        req.Name,
