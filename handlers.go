@@ -569,9 +569,9 @@ func getBudgetAnalysis(c *gin.Context) {
 	var currentSpending float64
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&currentSpending)
 	
-	// 固定費合計取得（表示用）
+	// 固定支出合計取得（表示用）- 固定収入は含めない
 	var totalFixedExpenses float64
-	db.Model(&FixedExpense{}).Where("user_id = ? AND is_active = ?", userID, true).Select("COALESCE(SUM(amount), 0)").Scan(&totalFixedExpenses)
+	db.Model(&FixedExpense{}).Where("user_id = ? AND type = ? AND is_active = ?", userID, "expense", true).Select("COALESCE(SUM(amount), 0)").Scan(&totalFixedExpenses)
 	
 	// 残り予算計算（固定費は既にcurrentSpendingに含まれているので重複計算しない）
 	remainingBudget := budgetAmount - currentSpending
@@ -629,9 +629,9 @@ func getRemainingBudget(c *gin.Context) {
 		return
 	}
 	
-	// 固定費合計取得
+	// 固定支出合計取得（固定収入は含めない）
 	var totalFixedExpenses float64
-	db.Model(&FixedExpense{}).Where("user_id = ? AND is_active = ?", userID, true).Select("COALESCE(SUM(amount), 0)").Scan(&totalFixedExpenses)
+	db.Model(&FixedExpense{}).Where("user_id = ? AND type = ? AND is_active = ?", userID, "expense", true).Select("COALESCE(SUM(amount), 0)").Scan(&totalFixedExpenses)
 	
 	// 当月の支出取得
 	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
@@ -670,9 +670,9 @@ func getBudgetHistory(c *gin.Context) {
 			budgetAmount = budget.Amount
 		}
 		
-		// 固定費合計取得
+		// 固定支出合計取得（固定収入は含めない）
 		var fixedExpenses float64
-		db.Model(&FixedExpense{}).Where("user_id = ? AND is_active = ?", userID, true).Select("COALESCE(SUM(amount), 0)").Scan(&fixedExpenses)
+		db.Model(&FixedExpense{}).Where("user_id = ? AND type = ? AND is_active = ?", userID, "expense", true).Select("COALESCE(SUM(amount), 0)").Scan(&fixedExpenses)
 		
 		// 実際の支出取得
 		startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
