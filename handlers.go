@@ -453,44 +453,8 @@ func createFixedExpense(c *gin.Context) {
 		return
 	}
 	
-	// 固定費作成時に今月の取引を生成（重複チェック付き）
-	now := time.Now()
-	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Second)
-	
-	description := "固定収支: " + fixedExpense.Name
-	if fixedExpense.Type == "income" {
-		description = "固定収入: " + fixedExpense.Name
-	} else {
-		description = "固定支出: " + fixedExpense.Name
-	}
-	
-	// 今月に同じカテゴリ・同じ金額・同じタイプの取引が既に存在するかチェック
-	var existingCount int64
-	db.Model(&Transaction{}).Where(
-		"user_id = ? AND category_id = ? AND type = ? AND amount = ? AND date BETWEEN ? AND ?",
-		userID, fixedExpense.CategoryID, fixedExpense.Type, fixedExpense.Amount, startOfMonth, endOfMonth,
-	).Count(&existingCount)
-	
-	// 既存の取引がない場合のみ新しい取引を生成
-	if existingCount == 0 {
-		transaction := Transaction{
-			UserID:      userID.(uint),
-			Type:        fixedExpense.Type,
-			Amount:      fixedExpense.Amount,
-			CategoryID:  fixedExpense.CategoryID,
-			Description: description,
-			Date:        startOfMonth,
-		}
-		
-		if err := db.Create(&transaction).Error; err != nil {
-			log.Printf("Failed to create transaction for fixed expense: %v", err)
-		} else {
-			log.Printf("Created transaction for fixed expense: %s, amount: %f", fixedExpense.Name, fixedExpense.Amount)
-		}
-	} else {
-		log.Printf("Skipping transaction creation for fixed expense: %s (similar transaction already exists)", fixedExpense.Name)
-	}
+	// 固定収支作成時に当月の取引を生成（毎月1日に実行される想定）
+	createFixedTransactionForMonth(userID.(uint), fixedExpense)
 	
 	// カテゴリ情報を含めて返す
 	db.Preload("Category").First(&fixedExpense, fixedExpense.ID)
@@ -1041,4 +1005,75 @@ func continueBudgetSettings(c *gin.Context) {
 	// 予算設定自体は削除されず、継続される
 	
 	c.JSON(http.StatusOK, gin.H{"message": "Budget settings continued successfully - spending amounts will reset automatically for new month"})
+}
+
+// 固定収支の取引を指定月に生成する関数
+func createFixedTransactionForMonth(userID uint, fixedExpense FixedExpense) {
+	if !fixedExpense.IsActive {
+		return // 無効な固定収支はスキップ
+	}
+	
+	now := time.Now()
+	// 毎月1日に設定
+	firstDayOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	
+	description := "固定収支: " + fixedExpense.Name
+	if fixedExpense.Type == "income" {
+		description = "固定収入: " + fixedExpense.Name
+	} else {
+		description = "固定支出: " + fixedExpense.Name
+	}
+	
+	// 今月に同じ固定収支からの取引が既に存在するかチェック
+	var existingCount int64
+	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Second)
+	
+	db.Model(&Transaction{}).Where(
+		"user_id = ? AND category_id = ? AND type = ? AND amount = ? AND description = ? AND date BETWEEN ? AND ?",
+		userID, fixedExpense.CategoryID, fixedExpense.Type, fixedExpense.Amount, description, startOfMonth, endOfMonth,
+	).Count(&existingCount)
+	
+	// 既存の取引がない場合のみ新しい取引を生成
+	if existingCount == 0 {
+		transaction := Transaction{
+			UserID:      userID,
+			Type:        fixedExpense.Type,
+			Amount:      fixedExpense.Amount,
+			CategoryID:  fixedExpense.CategoryID,
+			Description: description,
+			Date:        firstDayOfMonth,
+		}
+		
+		if err := db.Create(&transaction).Error; err != nil {
+			log.Printf("Failed to create transaction for fixed expense: %v", err)
+		} else {
+			log.Printf("Created transaction for fixed expense: %s, amount: %f on %s", fixedExpense.Name, fixedExpense.Amount, firstDayOfMonth.Format("2006-01-02"))
+		}
+	} else {
+		log.Printf("Skipping transaction creation for fixed expense: %s (transaction already exists for this month)", fixedExpense.Name)
+	}
+}
+
+// 全ユーザーの固定収支を処理する関数（毎月1日に実行される想定）
+func processMonthlyFixedTransactions() {
+	log.Println("Processing monthly fixed transactions...")
+	
+	var fixedExpenses []FixedExpense
+	if err := db.Where("is_active = ?", true).Find(&fixedExpenses).Error; err != nil {
+		log.Printf("Failed to fetch active fixed expenses: %v", err)
+		return
+	}
+	
+	for _, fixedExpense := range fixedExpenses {
+		createFixedTransactionForMonth(fixedExpense.UserID, fixedExpense)
+	}
+	
+	log.Printf("Processed %d active fixed expenses", len(fixedExpenses))
+}
+
+// 月次固定収支処理のハンドラー
+func processMonthlyFixedTransactionsHandler(c *gin.Context) {
+	processMonthlyFixedTransactions()
+	c.JSON(http.StatusOK, gin.H{"message": "Monthly fixed transactions processed successfully"})
 }
