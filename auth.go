@@ -178,28 +178,28 @@ func authMiddleware() gin.HandlerFunc {
 
 // デフォルトカテゴリ作成
 func createDefaultCategories(userID uint) {
-	// 収入カテゴリ
+	// 収入カテゴリ（一般的な重要度・使用頻度順）
 	incomeCategories := []Category{
 		{UserID: userID, Name: "給与", Type: "income", Color: "#10B981", Icon: "💼", Description: "会社からの給与"},
+		{UserID: userID, Name: "賞与", Type: "income", Color: "#F59E0B", Icon: "🎁", Description: "ボーナス・賞与"},
 		{UserID: userID, Name: "副業", Type: "income", Color: "#3B82F6", Icon: "💻", Description: "副業・フリーランス収入"},
 		{UserID: userID, Name: "投資", Type: "income", Color: "#8B5CF6", Icon: "📈", Description: "株式・投資信託の利益"},
-		{UserID: userID, Name: "賞与", Type: "income", Color: "#F59E0B", Icon: "🎁", Description: "ボーナス・賞与"},
 		{UserID: userID, Name: "その他収入", Type: "income", Color: "#6B7280", Icon: "💵", Description: "その他の収入"},
 	}
 
-	// 支出カテゴリ
+	// 支出カテゴリ（一般的な重要度・使用頻度順）
 	expenseCategories := []Category{
 		{UserID: userID, Name: "食費", Type: "expense", Color: "#EF4444", Icon: "🍽️", Description: "食事・食材費"},
 		{UserID: userID, Name: "住居費", Type: "expense", Color: "#F97316", Icon: "🏠", Description: "家賃・住宅ローン"},
 		{UserID: userID, Name: "光熱費", Type: "expense", Color: "#EAB308", Icon: "⚡", Description: "電気・ガス・水道"},
-		{UserID: userID, Name: "交通費", Type: "expense", Color: "#22C55E", Icon: "🚗", Description: "電車・バス・ガソリン"},
 		{UserID: userID, Name: "通信費", Type: "expense", Color: "#3B82F6", Icon: "📱", Description: "携帯・インターネット"},
+		{UserID: userID, Name: "交通費", Type: "expense", Color: "#22C55E", Icon: "🚗", Description: "電車・バス・ガソリン"},
 		{UserID: userID, Name: "医療費", Type: "expense", Color: "#EC4899", Icon: "🏥", Description: "病院・薬代"},
-		{UserID: userID, Name: "教育費", Type: "expense", Color: "#8B5CF6", Icon: "📚", Description: "学費・書籍・習い事"},
-		{UserID: userID, Name: "娯楽費", Type: "expense", Color: "#F59E0B", Icon: "🎮", Description: "映画・ゲーム・趣味"},
+		{UserID: userID, Name: "日用品", Type: "expense", Color: "#84CC16", Icon: "🧴", Description: "洗剤・ティッシュなど"},
 		{UserID: userID, Name: "衣服費", Type: "expense", Color: "#06B6D4", Icon: "👕", Description: "洋服・靴・アクセサリー"},
 		{UserID: userID, Name: "美容費", Type: "expense", Color: "#EC4899", Icon: "💄", Description: "美容院・化粧品"},
-		{UserID: userID, Name: "日用品", Type: "expense", Color: "#84CC16", Icon: "🧴", Description: "洗剤・ティッシュなど"},
+		{UserID: userID, Name: "教育費", Type: "expense", Color: "#8B5CF6", Icon: "📚", Description: "学費・書籍・習い事"},
+		{UserID: userID, Name: "娯楽費", Type: "expense", Color: "#F59E0B", Icon: "🎮", Description: "映画・ゲーム・趣味"},
 		{UserID: userID, Name: "その他支出", Type: "expense", Color: "#6B7280", Icon: "📄", Description: "その他の支出"},
 	}
 
