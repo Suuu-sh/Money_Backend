@@ -908,3 +908,137 @@ func getCategoryBudgetAnalysis(c *gin.Context) {
 	
 	c.JSON(http.StatusOK, analysis)
 }
+
+// 月次予算レポート取得
+func getMonthlyBudgetReport(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	year, _ := strconv.Atoi(c.Param("year"))
+	month, _ := strconv.Atoi(c.Param("month"))
+	
+	// カテゴリ別予算を取得
+	var categoryBudgets []CategoryBudget
+	db.Preload("Category").Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Find(&categoryBudgets)
+	
+	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
+	
+	var categories []map[string]interface{}
+	var totalBudget, totalSpent float64
+	
+	for _, budget := range categoryBudgets {
+		var spentAmount float64
+		db.Model(&Transaction{}).Where("user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ?", 
+			userID, budget.CategoryID, "expense", startDate, endDate).
+			Select("COALESCE(SUM(amount), 0)").Scan(&spentAmount)
+		
+		percentage := float64(0)
+		if budget.Amount > 0 {
+			percentage = (spentAmount / budget.Amount) * 100
+		}
+		
+		status := "exact"
+		if spentAmount > budget.Amount {
+			status = "over"
+		} else if spentAmount < budget.Amount {
+			status = "under"
+		}
+		
+		category := map[string]interface{}{
+			"id":           strconv.Itoa(int(budget.CategoryID)),
+			"name":         budget.Category.Name,
+			"budgetAmount": budget.Amount,
+			"actualAmount": spentAmount,
+			"percentage":   percentage,
+			"status":       status,
+		}
+		
+		categories = append(categories, category)
+		totalBudget += budget.Amount
+		totalSpent += spentAmount
+	}
+	
+	overallStatus := "exact"
+	if totalSpent > totalBudget {
+		overallStatus = "over"
+	} else if totalSpent < totalBudget {
+		overallStatus = "under"
+	}
+	
+	report := map[string]interface{}{
+		"month":         strconv.Itoa(month),
+		"year":          year,
+		"categories":    categories,
+		"totalBudget":   totalBudget,
+		"totalSpent":    totalSpent,
+		"overallStatus": overallStatus,
+	}
+	
+	c.JSON(http.StatusOK, report)
+}
+
+// 予算設定継続（予算設定は保持し、使用済み金額のみリセット）
+func continueBudgetSettings(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	year, _ := strconv.Atoi(c.Param("year"))
+	month, _ := strconv.Atoi(c.Param("month"))
+	
+	// 前月の予算設定を取得
+	prevMonth := month - 1
+	prevYear := year
+	if prevMonth == 0 {
+		prevMonth = 12
+		prevYear = year - 1
+	}
+	
+	// 前月のカテゴリ別予算を取得
+	var prevCategoryBudgets []CategoryBudget
+	db.Where("user_id = ? AND year = ? AND month = ?", userID, prevYear, prevMonth).Find(&prevCategoryBudgets)
+	
+	// 今月の予算設定を作成（既存の予算設定は保持）
+	for _, prevBudget := range prevCategoryBudgets {
+		// 既存の予算があるかチェック
+		var existingBudget CategoryBudget
+		if err := db.Where("user_id = ? AND category_id = ? AND year = ? AND month = ?", 
+			userID, prevBudget.CategoryID, year, month).First(&existingBudget).Error; err != nil {
+			// 存在しない場合は新規作成（予算設定を継続）
+			newBudget := CategoryBudget{
+				UserID:     userID.(uint),
+				CategoryID: prevBudget.CategoryID,
+				Year:       year,
+				Month:      month,
+				Amount:     prevBudget.Amount,
+			}
+			db.Create(&newBudget)
+		} else {
+			// 既存の予算がある場合は金額を更新（予算設定を保持）
+			existingBudget.Amount = prevBudget.Amount
+			db.Save(&existingBudget)
+		}
+	}
+	
+	// 前月の月次予算も継続（既存の予算設定は保持）
+	var prevBudget Budget
+	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, prevYear, prevMonth).First(&prevBudget).Error; err == nil {
+		var existingBudget Budget
+		if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&existingBudget).Error; err != nil {
+			// 存在しない場合は新規作成
+			newBudget := Budget{
+				UserID: userID.(uint),
+				Year:   year,
+				Month:  month,
+				Amount: prevBudget.Amount,
+			}
+			db.Create(&newBudget)
+		} else {
+			// 既存の予算がある場合は金額を更新（予算設定を保持）
+			existingBudget.Amount = prevBudget.Amount
+			db.Save(&existingBudget)
+		}
+	}
+	
+	// 注意: 使用済み金額（実際の支出）は取引データに基づいて計算されるため、
+	// 月が変わると自動的に新しい月の支出として計算される
+	// 予算設定自体は削除されず、継続される
+	
+	c.JSON(http.StatusOK, gin.H{"message": "Budget settings continued successfully - spending amounts will reset automatically for new month"})
+}

@@ -75,6 +75,8 @@ func main() {
 			protected.GET("budget/analysis/:year/:month", getBudgetAnalysis)
 			protected.GET("budget/remaining/:year/:month", getRemainingBudget)
 			protected.GET("budget/history", getBudgetHistory)
+			protected.GET("budget/monthly-report/:year/:month", getMonthlyBudgetReport)
+			protected.POST("budget/continue/:year/:month", continueBudgetSettings)
 
 			// カテゴリ別予算関連
 			protected.GET("category-budgets/:year/:month", getCategoryBudgets)
