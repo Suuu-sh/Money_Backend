@@ -200,6 +200,8 @@ func createDefaultCategories(userID uint) {
 		{UserID: userID, Name: "美容費", Type: "expense", Color: "#EC4899", Icon: "💄", Description: "美容院・化粧品"},
 		{UserID: userID, Name: "教育費", Type: "expense", Color: "#8B5CF6", Icon: "📚", Description: "学費・書籍・習い事"},
 		{UserID: userID, Name: "娯楽費", Type: "expense", Color: "#F59E0B", Icon: "🎮", Description: "映画・ゲーム・趣味"},
+		{UserID: userID, Name: "交際費", Type: "expense", Color: "#EC4899", Icon: "👥", Description: "飲み会・デート・プレゼント"},
+		{UserID: userID, Name: "投資費", Type: "expense", Color: "#059669", Icon: "🐷", Description: "株式・投資信託・積立投資"},
 		{UserID: userID, Name: "その他支出", Type: "expense", Color: "#6B7280", Icon: "📄", Description: "その他の支出"},
 	}
 
