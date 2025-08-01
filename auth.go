@@ -80,7 +80,7 @@ func register(c *gin.Context) {
 	}
 
 	// デフォルトカテゴリ作成
-	createDefaultCategories(user.ID)
+	ensureUserHasDefaultCategories(user.ID)
 
 	// トークン生成
 	token, err := generateToken(user.ID, user.Email)
@@ -176,19 +176,17 @@ func authMiddleware() gin.HandlerFunc {
 	}
 }
 
-// デフォルトカテゴリ作成
-func createDefaultCategories(userID uint) {
-	// 収入カテゴリ（一般的な重要度・使用頻度順）
-	incomeCategories := []Category{
+// 特定のユーザーに不足しているカテゴリを追加
+func ensureUserHasDefaultCategories(userID uint) {
+	// 必要なカテゴリのリスト
+	requiredCategories := []Category{
+		// 収入カテゴリ
 		{UserID: userID, Name: "給与", Type: "income", Color: "#10B981", Icon: "💼", Description: "会社からの給与"},
 		{UserID: userID, Name: "賞与", Type: "income", Color: "#F59E0B", Icon: "🎁", Description: "ボーナス・賞与"},
 		{UserID: userID, Name: "副業", Type: "income", Color: "#3B82F6", Icon: "💻", Description: "副業・フリーランス収入"},
 		{UserID: userID, Name: "投資", Type: "income", Color: "#8B5CF6", Icon: "📈", Description: "株式・投資信託の利益"},
 		{UserID: userID, Name: "その他収入", Type: "income", Color: "#6B7280", Icon: "💵", Description: "その他の収入"},
-	}
-
-	// 支出カテゴリ（一般的な重要度・使用頻度順）
-	expenseCategories := []Category{
+		// 支出カテゴリ
 		{UserID: userID, Name: "食費", Type: "expense", Color: "#EF4444", Icon: "🍽️", Description: "食事・食材費"},
 		{UserID: userID, Name: "住居費", Type: "expense", Color: "#F97316", Icon: "🏠", Description: "家賃・住宅ローン"},
 		{UserID: userID, Name: "光熱費", Type: "expense", Color: "#EAB308", Icon: "⚡", Description: "電気・ガス・水道"},
@@ -204,12 +202,30 @@ func createDefaultCategories(userID uint) {
 		{UserID: userID, Name: "投資費", Type: "expense", Color: "#059669", Icon: "🐷", Description: "株式・投資信託・積立投資"},
 		{UserID: userID, Name: "その他支出", Type: "expense", Color: "#6B7280", Icon: "📄", Description: "その他の支出"},
 	}
+	
+	// 各カテゴリが存在するかチェックし、存在しない場合は作成
+	for _, requiredCategory := range requiredCategories {
+		var existingCategory Category
+		result := db.Where("user_id = ? AND name = ? AND type = ?", userID, requiredCategory.Name, requiredCategory.Type).First(&existingCategory)
+		
+		if result.Error != nil {
+			// カテゴリが存在しない場合は作成
+			db.Create(&requiredCategory)
+		}
+	}
+}
 
-	// カテゴリ作成
-	for _, category := range incomeCategories {
-		db.Create(&category)
+// 既存のすべてのユーザーに対して不足しているカテゴリを追加
+func ensureAllUsersHaveDefaultCategories() {
+	var users []User
+	db.Find(&users)
+	
+	for _, user := range users {
+		ensureUserHasDefaultCategories(user.ID)
 	}
-	for _, category := range expenseCategories {
-		db.Create(&category)
-	}
+}
+
+// デフォルトカテゴリ作成（後方互換性のため残す）
+func createDefaultCategories(userID uint) {
+	ensureUserHasDefaultCategories(userID)
 }

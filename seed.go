@@ -14,20 +14,22 @@ func seedData() {
 	// 開発環境でのみテストユーザーを作成
 	var userCount int64
 	db.Model(&User{}).Count(&userCount)
-	if userCount > 0 {
-		return // 既にユーザーがある場合はスキップ
-	}
-
-	// テスト用ユーザー作成（開発環境のみ）
-	hashedPassword, _ := hashPasswordForSeed("password123")
-	testUser := User{
-		Email:    "test@example.com",
-		Password: hashedPassword,
-		Name:     "テストユーザー",
+	if userCount == 0 {
+		// テスト用ユーザー作成（開発環境のみ）
+		hashedPassword, _ := hashPasswordForSeed("password123")
+		testUser := User{
+			Email:    "test@example.com",
+			Password: hashedPassword,
+			Name:     "テストユーザー",
+		}
+		
+		db.Create(&testUser)
+		
+		// テストユーザー用のデフォルトカテゴリ作成
+		createDefaultCategories(testUser.ID)
 	}
 	
-	db.Create(&testUser)
-	
-	// テストユーザー用のデフォルトカテゴリ作成
-	createDefaultCategories(testUser.ID)
+	// 既存のすべてのユーザーに対して不足しているカテゴリを追加
+	ensureAllUsersHaveDefaultCategories()
 }
+
