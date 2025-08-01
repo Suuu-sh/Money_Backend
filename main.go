@@ -68,6 +68,8 @@ func main() {
 			// 固定費関連
 			protected.GET("fixed-expenses", getFixedExpenses)
 			protected.POST("fixed-expenses", createFixedExpense)
+			// 固定収支の月次処理（パラメータ化されたルートより前に配置）
+			protected.POST("fixed-expenses/process-monthly", processMonthlyFixedTransactionsHandler)
 			protected.PUT("fixed-expenses/:id", updateFixedExpense)
 			protected.DELETE("fixed-expenses/:id", deleteFixedExpense)
 
@@ -77,9 +79,6 @@ func main() {
 			protected.GET("budget/history", getBudgetHistory)
 			protected.GET("budget/monthly-report/:year/:month", getMonthlyBudgetReport)
 			protected.POST("budget/continue/:year/:month", continueBudgetSettings)
-			
-			// 固定収支の月次処理
-			protected.POST("fixed-expenses/process-monthly", processMonthlyFixedTransactionsHandler)
 
 			// カテゴリ別予算関連
 			protected.GET("category-budgets/:year/:month", getCategoryBudgets)
