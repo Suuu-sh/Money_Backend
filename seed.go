@@ -31,5 +31,40 @@ func seedData() {
 	
 	// 既存のすべてのユーザーに対して不足しているカテゴリを追加
 	ensureAllUsersHaveDefaultCategories()
+	
+	// 既存のカテゴリのアイコンを絵文字から商用アイコンに更新
+	updateEmojiIconsToCommercialIcons()
+}
+
+// 既存のカテゴリのアイコンを絵文字から商用アイコンに更新
+func updateEmojiIconsToCommercialIcons() {
+	// 絵文字から商用アイコンへのマッピング
+	iconMapping := map[string]string{
+		"💼": "briefcase",
+		"🎁": "gift",
+		"💻": "computer",
+		"📈": "chart",
+		"💵": "money",
+		"💰": "money",
+		"🍽️": "food",
+		"🏠": "home",
+		"⚡": "lightning",
+		"📱": "phone",
+		"🚗": "car",
+		"🏥": "hospital",
+		"🧴": "bottle",
+		"👕": "shirt",
+		"💄": "beauty",
+		"📚": "book",
+		"🎮": "game",
+		"👥": "users",
+		"🐷": "piggybank",
+		"📄": "document",
+	}
+	
+	// 各絵文字アイコンを商用アイコンに更新
+	for emojiIcon, commercialIcon := range iconMapping {
+		db.Model(&Category{}).Where("icon = ?", emojiIcon).Update("icon", commercialIcon)
+	}
 }
 
