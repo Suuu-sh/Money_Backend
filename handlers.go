@@ -59,27 +59,11 @@ func createTransaction(c *gin.Context) {
 		return
 	}
 
-	// 日付文字列をtime.Timeに変換（複数のフォーマットに対応）
-	var date time.Time
-	var err error
-	
-	// 複数の日付フォーマットを試行
-	dateFormats := []string{
-		"2006-01-02",           // YYYY-MM-DD
-		"2006-01-02T15:04:05Z", // ISO 8601 UTC
-		"2006-01-02T15:04:05Z07:00", // ISO 8601 with timezone
-		"2006-01-02T15:04:05",  // ISO 8601 without timezone
-	}
-	
-	for _, format := range dateFormats {
-		date, err = time.Parse(format, req.Date)
-		if err == nil {
-			break
-		}
-	}
-	
+	// 日付文字列をtime.Timeに変換（YYYY-MM-DD形式を優先）
+	date, err := time.Parse("2006-01-02", req.Date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Expected YYYY-MM-DD or ISO 8601 format: " + err.Error()})
+		log.Printf("Failed to parse date '%s' with YYYY-MM-DD format: %v", req.Date, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Expected YYYY-MM-DD format. Received: " + req.Date})
 		return
 	}
 
@@ -127,27 +111,11 @@ func updateTransaction(c *gin.Context) {
 		return
 	}
 
-	// 日付文字列をtime.Timeに変換（複数のフォーマットに対応）
-	var date time.Time
-	var err error
-	
-	// 複数の日付フォーマットを試行
-	dateFormats := []string{
-		"2006-01-02",           // YYYY-MM-DD
-		"2006-01-02T15:04:05Z", // ISO 8601 UTC
-		"2006-01-02T15:04:05Z07:00", // ISO 8601 with timezone
-		"2006-01-02T15:04:05",  // ISO 8601 without timezone
-	}
-	
-	for _, format := range dateFormats {
-		date, err = time.Parse(format, req.Date)
-		if err == nil {
-			break
-		}
-	}
-	
+	// 日付文字列をtime.Timeに変換（YYYY-MM-DD形式を優先）
+	date, err := time.Parse("2006-01-02", req.Date)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Expected YYYY-MM-DD or ISO 8601 format: " + err.Error()})
+		log.Printf("Failed to parse date '%s' with YYYY-MM-DD format: %v", req.Date, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Expected YYYY-MM-DD format. Received: " + req.Date})
 		return
 	}
 
