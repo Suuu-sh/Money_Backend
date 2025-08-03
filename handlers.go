@@ -695,6 +695,13 @@ func getBudgetHistory(c *gin.Context) {
 			budgetAmount = budget.Amount
 		}
 		
+		// 月次予算が設定されていない場合、カテゴリ別予算の合計を使用
+		if budgetAmount == 0 {
+			var categoryBudgetTotal float64
+			db.Model(&CategoryBudget{}).Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Select("COALESCE(SUM(amount), 0)").Scan(&categoryBudgetTotal)
+			budgetAmount = categoryBudgetTotal
+		}
+		
 		// 固定支出合計取得（固定収入は含めない）
 		var fixedExpenses float64
 		db.Model(&FixedExpense{}).Where("user_id = ? AND type = ? AND is_active = ?", userID, "expense", true).Select("COALESCE(SUM(amount), 0)").Scan(&fixedExpenses)
