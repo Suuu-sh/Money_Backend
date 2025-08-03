@@ -59,10 +59,27 @@ func createTransaction(c *gin.Context) {
 		return
 	}
 
-	// 日付文字列をtime.Timeに変換
-	date, err := time.Parse("2006-01-02", req.Date)
+	// 日付文字列をtime.Timeに変換（複数のフォーマットに対応）
+	var date time.Time
+	var err error
+	
+	// 複数の日付フォーマットを試行
+	dateFormats := []string{
+		"2006-01-02",           // YYYY-MM-DD
+		"2006-01-02T15:04:05Z", // ISO 8601 UTC
+		"2006-01-02T15:04:05Z07:00", // ISO 8601 with timezone
+		"2006-01-02T15:04:05",  // ISO 8601 without timezone
+	}
+	
+	for _, format := range dateFormats {
+		date, err = time.Parse(format, req.Date)
+		if err == nil {
+			break
+		}
+	}
+	
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Expected YYYY-MM-DD or ISO 8601 format: " + err.Error()})
 		return
 	}
 
@@ -96,12 +113,57 @@ func updateTransaction(c *gin.Context) {
 		return
 	}
 
-	if err := c.ShouldBindJSON(&transaction); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// リクエストデータを受け取るための構造体
+	var req struct {
+		Type        string  `json:"type" binding:"required"`
+		Amount      float64 `json:"amount" binding:"required"`
+		CategoryID  uint    `json:"categoryId" binding:"required"`
+		Description string  `json:"description"`
+		Date        string  `json:"date" binding:"required"`
+	}
+	
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
 		return
 	}
 
-	db.Save(&transaction)
+	// 日付文字列をtime.Timeに変換（複数のフォーマットに対応）
+	var date time.Time
+	var err error
+	
+	// 複数の日付フォーマットを試行
+	dateFormats := []string{
+		"2006-01-02",           // YYYY-MM-DD
+		"2006-01-02T15:04:05Z", // ISO 8601 UTC
+		"2006-01-02T15:04:05Z07:00", // ISO 8601 with timezone
+		"2006-01-02T15:04:05",  // ISO 8601 without timezone
+	}
+	
+	for _, format := range dateFormats {
+		date, err = time.Parse(format, req.Date)
+		if err == nil {
+			break
+		}
+	}
+	
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format. Expected YYYY-MM-DD or ISO 8601 format: " + err.Error()})
+		return
+	}
+
+	// Transactionオブジェクトを更新
+	transaction.Type = req.Type
+	transaction.Amount = req.Amount
+	transaction.CategoryID = req.CategoryID
+	transaction.Description = req.Description
+	transaction.Date = date
+
+	if err := db.Save(&transaction).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update transaction: " + err.Error()})
+		return
+	}
+
+	// カテゴリ情報を含めて返す
 	db.Preload("Category").First(&transaction, transaction.ID)
 	c.JSON(http.StatusOK, transaction)
 }
