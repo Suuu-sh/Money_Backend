@@ -434,6 +434,18 @@ func deleteBudget(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Budget deleted successfully"})
 }
 
+// 全ての月次予算を削除（廃止機能のクリーンアップ用）
+func deleteAllMonthlyBudgets(c *gin.Context) {
+	userID, _ := c.Get("userID")
+	
+	if err := db.Where("user_id = ?", userID).Delete(&Budget{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete all monthly budgets: " + err.Error()})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"message": "All monthly budgets deleted successfully"})
+}
+
 // 固定費関連ハンドラー
 
 // 固定費一覧取得
@@ -637,10 +649,12 @@ func getRemainingBudget(c *gin.Context) {
 	year, _ := strconv.Atoi(c.Param("year"))
 	month, _ := strconv.Atoi(c.Param("month"))
 	
-	// 予算取得
-	var budget Budget
-	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&budget).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found for this month"})
+	// 常にカテゴリ別予算の合計を使用（月次予算は廃止）
+	var budgetAmount float64
+	db.Model(&CategoryBudget{}).Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Select("COALESCE(SUM(amount), 0)").Scan(&budgetAmount)
+	
+	if budgetAmount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No category budgets found for this month"})
 		return
 	}
 	
@@ -656,11 +670,11 @@ func getRemainingBudget(c *gin.Context) {
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&currentSpending)
 	
 	// 残り予算計算
-	remainingBudget := budget.Amount - totalFixedExpenses - currentSpending
+	remainingBudget := budgetAmount - totalFixedExpenses - currentSpending
 	
 	c.JSON(http.StatusOK, gin.H{
 		"remainingBudget": remainingBudget,
-		"monthlyBudget":   budget.Amount,
+		"monthlyBudget":   budgetAmount,
 		"fixedExpenses":   totalFixedExpenses,
 		"currentSpending": currentSpending,
 	})

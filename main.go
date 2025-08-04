@@ -79,6 +79,8 @@ func main() {
 			protected.GET("budget/history", getBudgetHistory)
 			protected.GET("budget/monthly-report/:year/:month", getMonthlyBudgetReport)
 			protected.POST("budget/continue/:year/:month", continueBudgetSettings)
+			// 廃止機能のクリーンアップ用
+			protected.DELETE("budget/cleanup-monthly", deleteAllMonthlyBudgets)
 
 			// カテゴリ別予算関連
 			protected.GET("category-budgets/:year/:month", getCategoryBudgets)
