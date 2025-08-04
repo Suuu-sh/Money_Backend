@@ -573,19 +573,9 @@ func getBudgetAnalysis(c *gin.Context) {
 	year, _ := strconv.Atoi(c.Param("year"))
 	month, _ := strconv.Atoi(c.Param("month"))
 	
-	// 予算取得（存在しない場合はカテゴリ別予算の合計を使用）
-	var budget Budget
-	budgetAmount := float64(0)
-	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&budget).Error; err == nil {
-		budgetAmount = budget.Amount
-	}
-	
-	// 月次予算が設定されていない場合、カテゴリ別予算の合計を使用
-	if budgetAmount == 0 {
-		var categoryBudgetTotal float64
-		db.Model(&CategoryBudget{}).Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Select("COALESCE(SUM(amount), 0)").Scan(&categoryBudgetTotal)
-		budgetAmount = categoryBudgetTotal
-	}
+	// 常にカテゴリ別予算の合計を使用（月次予算は廃止）
+	var budgetAmount float64
+	db.Model(&CategoryBudget{}).Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Select("COALESCE(SUM(amount), 0)").Scan(&budgetAmount)
 	
 	// 当月の支出取得（固定費から自動生成された取引も含む）
 	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
@@ -689,18 +679,9 @@ func getBudgetHistory(c *gin.Context) {
 		year := targetDate.Year()
 		month := int(targetDate.Month())
 		
-		var budget Budget
-		var budgetAmount float64 = 0
-		if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&budget).Error; err == nil {
-			budgetAmount = budget.Amount
-		}
-		
-		// 月次予算が設定されていない場合、カテゴリ別予算の合計を使用
-		if budgetAmount == 0 {
-			var categoryBudgetTotal float64
-			db.Model(&CategoryBudget{}).Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Select("COALESCE(SUM(amount), 0)").Scan(&categoryBudgetTotal)
-			budgetAmount = categoryBudgetTotal
-		}
+		// 常にカテゴリ別予算の合計を使用（月次予算は廃止）
+		var budgetAmount float64
+		db.Model(&CategoryBudget{}).Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Select("COALESCE(SUM(amount), 0)").Scan(&budgetAmount)
 		
 		// 固定支出合計取得（固定収入は含めない）
 		var fixedExpenses float64
