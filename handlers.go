@@ -1,13 +1,12 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
-	"strconv"
-	"time"
+    "log"
+    "net/http"
+    "strconv"
+    "time"
 
-	"github.com/gin-gonic/gin"
+    "github.com/gin-gonic/gin"
 )
 
 // 取引一覧取得
@@ -1122,4 +1121,3 @@ func processMonthlyFixedTransactions() {
 	log.Printf("[BATCH] Processing completed: %d/%d fixed expenses processed successfully", 
 		successCount, len(fixedExpenses))
 }
-
