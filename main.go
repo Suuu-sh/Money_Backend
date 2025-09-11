@@ -16,6 +16,12 @@ func main() {
 	// データベース初期化
 	initDB()
 
+	// 自動スケジューラーを開始
+	startScheduler()
+	
+	// サーバー起動時に当月の処理をチェック
+	checkAndProcessCurrentMonth()
+
 	// Ginルーター設定
 	r := gin.Default()
 
@@ -70,6 +76,10 @@ func main() {
 			protected.POST("fixed-expenses", createFixedExpense)
 			// 固定収支の月次処理（パラメータ化されたルートより前に配置）
 			protected.POST("fixed-expenses/process-monthly", processMonthlyFixedTransactionsHandler)
+			// スケジューラー関連（開発・テスト用）
+			protected.POST("scheduler/execute-now", executeMonthlyProcessingHandler)
+			protected.POST("scheduler/test/:minutes", scheduleTestProcessingHandler)
+			protected.GET("scheduler/status", getSchedulerStatusHandler)
 			protected.PUT("fixed-expenses/:id", updateFixedExpense)
 			protected.DELETE("fixed-expenses/:id", deleteFixedExpense)
 
