@@ -51,6 +51,13 @@ Thumbs.db
 *.tmp
 *.temp
 
+# Go build caches
+.gocache/
+.gomodcache/
+
+# Local build artifact
+/money-tracker
+
 # Build artifacts
 /bin/
 /pkg/
