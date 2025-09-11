@@ -1040,10 +1040,11 @@ func continueBudgetSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Budget settings continued successfully - spending amounts will reset automatically for new month"})
 }
 
-// 固定収支の取引を指定月に生成する関数
-func createFixedTransactionForMonth(userID uint, fixedExpense FixedExpense) {
+// 固定収支の取引を指定月に生成する関数（バッチ処理用）
+func createFixedTransactionForMonth(userID uint, fixedExpense FixedExpense) bool {
 	if !fixedExpense.IsActive {
-		return // 無効な固定収支はスキップ
+		log.Printf("[BATCH] Skipping inactive fixed expense: %s (ID: %d)", fixedExpense.Name, fixedExpense.ID)
+		return false
 	}
 	
 	now := time.Now()
@@ -1079,97 +1080,46 @@ func createFixedTransactionForMonth(userID uint, fixedExpense FixedExpense) {
 		}
 		
 		if err := db.Create(&transaction).Error; err != nil {
-			log.Printf("Failed to create transaction for fixed expense: %v", err)
+			log.Printf("[BATCH] ERROR: Failed to create transaction for %s (ID: %d): %v", 
+				fixedExpense.Name, fixedExpense.ID, err)
+			return false
 		} else {
-			log.Printf("Created transaction for fixed expense: %s, amount: %f on %s", fixedExpense.Name, fixedExpense.Amount, firstDayOfMonth.Format("2006-01-02"))
+			log.Printf("[BATCH] Created transaction: %s, ¥%.0f on %s", 
+				fixedExpense.Name, fixedExpense.Amount, firstDayOfMonth.Format("2006-01-02"))
+			return true
 		}
 	} else {
-		log.Printf("Skipping transaction creation for fixed expense: %s (transaction already exists for this month)", fixedExpense.Name)
+		log.Printf("[BATCH] Skipping %s: transaction already exists for this month", fixedExpense.Name)
+		return true // 既に処理済みなので成功とみなす
 	}
 }
 
-// 全ユーザーの固定収支を処理する関数（毎月1日に実行される想定）
+// 全ユーザーの固定収支を処理する関数（バッチ処理として毎月1日に自動実行）
 func processMonthlyFixedTransactions() {
-	log.Println("Processing monthly fixed transactions...")
+	now := time.Now()
+	currentMonth := now.Format("2006-01")
+	
+	log.Printf("[BATCH] Starting fixed transaction processing for %s", currentMonth)
 	
 	var fixedExpenses []FixedExpense
 	if err := db.Where("is_active = ?", true).Find(&fixedExpenses).Error; err != nil {
-		log.Printf("Failed to fetch active fixed expenses: %v", err)
+		log.Printf("[BATCH] ERROR: Failed to fetch active fixed expenses: %v", err)
 		return
 	}
 	
+	if len(fixedExpenses) == 0 {
+		log.Printf("[BATCH] No active fixed expenses found for processing")
+		return
+	}
+	
+	successCount := 0
 	for _, fixedExpense := range fixedExpenses {
-		createFixedTransactionForMonth(fixedExpense.UserID, fixedExpense)
+		if createFixedTransactionForMonth(fixedExpense.UserID, fixedExpense) {
+			successCount++
+		}
 	}
 	
-	log.Printf("Processed %d active fixed expenses", len(fixedExpenses))
+	log.Printf("[BATCH] Processing completed: %d/%d fixed expenses processed successfully", 
+		successCount, len(fixedExpenses))
 }
 
-// 月次固定収支処理のハンドラー
-func processMonthlyFixedTransactionsHandler(c *gin.Context) {
-	processMonthlyFixedTransactions()
-	c.JSON(http.StatusOK, gin.H{"message": "Monthly fixed transactions processed successfully"})
-}
-// 
-スケジューラー関連ハンドラー
-
-// 即座に月次処理を実行するハンドラー（開発・テスト用）
-func executeMonthlyProcessingHandler(c *gin.Context) {
-	log.Println("Manual execution of monthly processing requested")
-	executeMonthlyProcessingNow()
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Monthly fixed transaction processing executed successfully",
-		"timestamp": time.Now().Format("2006-01-02 15:04:05"),
-	})
-}
-
-// 指定分数後に月次処理を実行するハンドラー（開発・テスト用）
-func scheduleTestProcessingHandler(c *gin.Context) {
-	minutesStr := c.Param("minutes")
-	minutes, err := strconv.Atoi(minutesStr)
-	if err != nil || minutes < 1 || minutes > 60 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid minutes parameter. Must be between 1 and 60"})
-		return
-	}
-	
-	duration := time.Duration(minutes) * time.Minute
-	scheduleMonthlyProcessingAfter(duration)
-	
-	c.JSON(http.StatusOK, gin.H{
-		"message": fmt.Sprintf("Monthly processing scheduled to run in %d minutes", minutes),
-		"scheduled_time": time.Now().Add(duration).Format("2006-01-02 15:04:05"),
-	})
-}
-
-// スケジューラーの状態を取得するハンドラー
-func getSchedulerStatusHandler(c *gin.Context) {
-	now := time.Now()
-	
-	// 次の月の1日を計算
-	nextMonth := now.AddDate(0, 1, 0)
-	firstDayNextMonth := time.Date(nextMonth.Year(), nextMonth.Month(), 1, 0, 0, 0, 0, time.UTC)
-	
-	// アクティブな固定収支の数を取得
-	var activeFixedExpensesCount int64
-	db.Model(&FixedExpense{}).Where("is_active = ?", true).Count(&activeFixedExpensesCount)
-	
-	// 今月処理済みの取引数を取得
-	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	endOfDay := startOfMonth.Add(24 * time.Hour).Add(-time.Second)
-	
-	var processedThisMonth int64
-	db.Model(&Transaction{}).Where(
-		"date BETWEEN ? AND ? AND (description LIKE ? OR description LIKE ?)",
-		startOfMonth, endOfDay, "固定収入:%", "固定支出:%",
-	).Count(&processedThisMonth)
-	
-	c.JSON(http.StatusOK, gin.H{
-		"scheduler_active": true,
-		"current_time": now.Format("2006-01-02 15:04:05"),
-		"next_execution": firstDayNextMonth.Format("2006-01-02 15:04:05"),
-		"time_until_next": firstDayNextMonth.Sub(now).String(),
-		"active_fixed_expenses": activeFixedExpensesCount,
-		"processed_this_month": processedThisMonth,
-		"current_month_completed": processedThisMonth >= activeFixedExpensesCount,
-	})
-}

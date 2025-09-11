@@ -5,9 +5,10 @@ import (
 	"time"
 )
 
-// 自動スケジューラーを開始する関数
+// 自動スケジューラーを開始する関数（バッチ処理として完全にバックグラウンドで実行）
 func startScheduler() {
-	log.Println("Starting automatic scheduler for monthly fixed transactions...")
+	log.Println("=== MoneyTracker Batch Scheduler Started ===")
+	log.Println("Automatic monthly fixed transaction processing enabled")
 	
 	// goroutineで非同期実行
 	go func() {
@@ -21,47 +22,31 @@ func startScheduler() {
 			// 現在時刻から次の実行時刻までの待機時間を計算
 			duration := firstDayNextMonth.Sub(now)
 			
-			log.Printf("Next monthly fixed transaction processing scheduled for: %s (in %v)", 
+			log.Printf("[SCHEDULER] Next execution: %s (in %v)", 
 				firstDayNextMonth.Format("2006-01-02 15:04:05"), duration)
 			
 			// 指定時間まで待機
 			time.Sleep(duration)
 			
 			// 月次固定収支処理を実行
-			log.Println("Executing scheduled monthly fixed transaction processing...")
+			log.Printf("[BATCH] Starting monthly fixed transaction processing for %s", 
+				firstDayNextMonth.Format("2006-01"))
+			
+			startTime := time.Now()
 			processMonthlyFixedTransactions()
-			log.Println("Scheduled monthly fixed transaction processing completed")
+			processingTime := time.Since(startTime)
+			
+			log.Printf("[BATCH] Monthly processing completed in %v", processingTime)
 		}
 	}()
 }
 
-// 開発・テスト用：即座に月次処理を実行する関数
-func executeMonthlyProcessingNow() {
-	log.Println("Executing monthly fixed transaction processing immediately (for testing)...")
-	processMonthlyFixedTransactions()
-	log.Println("Immediate monthly fixed transaction processing completed")
-}
-
-// 開発・テスト用：指定した時間後に月次処理を実行する関数
-func scheduleMonthlyProcessingAfter(duration time.Duration) {
-	log.Printf("Scheduling monthly fixed transaction processing to run in %v", duration)
-	
-	go func() {
-		time.Sleep(duration)
-		log.Println("Executing scheduled monthly fixed transaction processing...")
-		processMonthlyFixedTransactions()
-		log.Println("Scheduled monthly fixed transaction processing completed")
-	}()
-}
-
-// サーバー起動時に当月の処理が必要かチェックして実行する関数
+// サーバー起動時に当月の処理が必要かチェックして実行する関数（バッチ処理）
 func checkAndProcessCurrentMonth() {
-	log.Println("Checking if current month processing is needed...")
+	log.Println("[BATCH] Checking current month processing status...")
 	
 	now := time.Now()
-	
-	// 今月1日の日付を取得
-	firstDayThisMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	currentMonth := now.Format("2006-01")
 	
 	// 今月の固定収支処理が既に実行されているかチェック
 	var processedCount int64
@@ -71,7 +56,7 @@ func checkAndProcessCurrentMonth() {
 	db.Model(&FixedExpense{}).Where("is_active = ?", true).Count(&activeFixedExpensesCount)
 	
 	if activeFixedExpensesCount == 0 {
-		log.Println("No active fixed expenses found, skipping current month processing")
+		log.Printf("[BATCH] No active fixed expenses found for %s, skipping processing", currentMonth)
 		return
 	}
 	
@@ -86,10 +71,16 @@ func checkAndProcessCurrentMonth() {
 	
 	// 処理済みの取引数がアクティブな固定収支数より少ない場合、処理を実行
 	if processedCount < activeFixedExpensesCount {
-		log.Printf("Current month processing needed. Found %d processed transactions, expected %d", 
-			processedCount, activeFixedExpensesCount)
+		log.Printf("[BATCH] Processing required for %s: %d/%d transactions processed", 
+			currentMonth, processedCount, activeFixedExpensesCount)
+		
+		startTime := time.Now()
 		processMonthlyFixedTransactions()
+		processingTime := time.Since(startTime)
+		
+		log.Printf("[BATCH] Current month processing completed in %v", processingTime)
 	} else {
-		log.Printf("Current month processing already completed. Found %d processed transactions", processedCount)
+		log.Printf("[BATCH] Processing already completed for %s: %d transactions processed", 
+			currentMonth, processedCount)
 	}
 }
