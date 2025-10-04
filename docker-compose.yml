@@ -1,9 +1,9 @@
 version: '3.9'
 
 services:
-  app:
+  api:
     build: .
-    container_name: money-backend
+    container_name: money-api
     environment:
       - PORT=8080
     expose:
@@ -31,7 +31,7 @@ services:
 
   nginx:
     image: nginx:1.25-alpine
-    container_name: money-nginx
+    container_name: money-backend
     ports:
       - "8080:80"
     depends_on:
