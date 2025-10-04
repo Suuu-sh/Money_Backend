@@ -1,28 +1,32 @@
 package main
 
 import (
-    "log"
-    "net/http"
-    "strconv"
-    "time"
+	"fmt"
+	"log"
+	"math"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
 
-    "github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
 )
 
 // 取引一覧取得
 func getTransactions(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	var transactions []Transaction
-	
+
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	transactionType := c.Query("type")
 	categoryId := c.Query("categoryId")
 	startDate := c.Query("startDate")
 	endDate := c.Query("endDate")
-	
+
 	query := db.Preload("Category").Where("user_id = ?", userID).Order("date DESC, created_at DESC")
-	
+
 	if transactionType != "" {
 		query = query.Where("type = ?", transactionType)
 	}
@@ -35,16 +39,16 @@ func getTransactions(c *gin.Context) {
 	if endDate != "" {
 		query = query.Where("date <= ?", endDate)
 	}
-	
+
 	offset := (page - 1) * limit
 	query.Offset(offset).Limit(limit).Find(&transactions)
-	
+
 	c.JSON(http.StatusOK, transactions)
 }
 
 func createTransaction(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	
+
 	// リクエストデータを受け取るための構造体
 	var req struct {
 		Type        string  `json:"type" binding:"required"`
@@ -53,7 +57,7 @@ func createTransaction(c *gin.Context) {
 		Description string  `json:"description"`
 		Date        string  `json:"date" binding:"required"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
 		return
@@ -91,7 +95,7 @@ func updateTransaction(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id := c.Param("id")
 	var transaction Transaction
-	
+
 	if err := db.Where("user_id = ?", userID).First(&transaction, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Transaction not found"})
 		return
@@ -105,7 +109,7 @@ func updateTransaction(c *gin.Context) {
 		Description string  `json:"description"`
 		Date        string  `json:"date" binding:"required"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
 		return
@@ -139,7 +143,7 @@ func updateTransaction(c *gin.Context) {
 func deleteTransaction(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id := c.Param("id")
-	
+
 	if err := db.Where("user_id = ?", userID).Delete(&Transaction{}, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -152,7 +156,7 @@ func getTransaction(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id := c.Param("id")
 	var transaction Transaction
-	
+
 	if err := db.Preload("Category").Where("user_id = ?", userID).First(&transaction, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Transaction not found"})
 		return
@@ -165,12 +169,12 @@ func getCategories(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	var categories []Category
 	transactionType := c.Query("type")
-	
+
 	query := db.Where("user_id = ?", userID).Order("type ASC, name ASC")
 	if transactionType != "" {
 		query = query.Where("type = ?", transactionType)
 	}
-	
+
 	query.Find(&categories)
 	c.JSON(http.StatusOK, categories)
 }
@@ -197,7 +201,7 @@ func updateCategory(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id := c.Param("id")
 	var category Category
-	
+
 	if err := db.Where("user_id = ?", userID).First(&category, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
 		return
@@ -215,14 +219,14 @@ func updateCategory(c *gin.Context) {
 func deleteCategory(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id := c.Param("id")
-	
+
 	var count int64
 	db.Model(&Transaction{}).Where("user_id = ? AND category_id = ?", userID, id).Count(&count)
 	if count > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot delete category with existing transactions"})
 		return
 	}
-	
+
 	if err := db.Where("user_id = ?", userID).Delete(&Category{}, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -234,47 +238,47 @@ func deleteCategory(c *gin.Context) {
 func getStats(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	var stats Stats
-	
+
 	// 通常の取引からの集計（固定費から自動生成された取引も含む）
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ?", userID, "income").Select("COALESCE(SUM(amount), 0)").Scan(&stats.TotalIncome)
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ?", userID, "expense").Select("COALESCE(SUM(amount), 0)").Scan(&stats.TotalExpense)
 	stats.CurrentBalance = stats.TotalIncome - stats.TotalExpense
-	
+
 	now := time.Now()
 	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Second)
-	
+
 	// 今月の取引（固定費から自動生成された取引も含む）
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "income", startOfMonth, endOfMonth).Select("COALESCE(SUM(amount), 0)").Scan(&stats.ThisMonthIncome)
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startOfMonth, endOfMonth).Select("COALESCE(SUM(amount), 0)").Scan(&stats.ThisMonthExpense)
-	
+
 	db.Model(&Transaction{}).Where("user_id = ?", userID).Count(&stats.TransactionCount)
-	
+
 	c.JSON(http.StatusOK, stats)
 }
 
 func getMonthlySummary(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	year, _ := strconv.Atoi(c.DefaultQuery("year", strconv.Itoa(time.Now().Year())))
-	
+
 	var summaries []MonthlySummary
-	
+
 	for month := 1; month <= 12; month++ {
 		startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 		endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
-		
+
 		var summary MonthlySummary
 		summary.Year = year
 		summary.Month = month
-		
+
 		// 通常の取引からの集計（固定費から自動生成された取引も含む）
 		db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "income", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&summary.TotalIncome)
 		db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&summary.TotalExpense)
 		summary.Balance = summary.TotalIncome - summary.TotalExpense
-		
+
 		summaries = append(summaries, summary)
 	}
-	
+
 	c.JSON(http.StatusOK, summaries)
 }
 
@@ -283,7 +287,7 @@ func getCategorySummary(c *gin.Context) {
 	transactionType := c.DefaultQuery("type", "expense")
 	startDate := c.Query("startDate")
 	endDate := c.Query("endDate")
-	
+
 	// 通常の取引からの集計（固定費から自動生成された取引も含む）
 	query := `
 		SELECT 
@@ -297,26 +301,26 @@ func getCategorySummary(c *gin.Context) {
 		FROM categories c
 		LEFT JOIN transactions t ON c.id = t.category_id AND t.type = ? AND t.user_id = ?
 	`
-	
+
 	args := []interface{}{transactionType, userID}
-	
+
 	if startDate != "" && endDate != "" {
 		query += " AND t.date BETWEEN ? AND ?"
 		args = append(args, startDate, endDate)
 	}
-	
+
 	query += " WHERE c.user_id = ? AND c.type = ? GROUP BY c.id ORDER BY total_amount DESC"
 	args = append(args, userID, transactionType)
-	
+
 	var summaries []CategorySummary
 	db.Raw(query, args...).Scan(&summaries)
-	
+
 	// デバッグログ
 	log.Printf("Category summaries for user %v, type %s: %d categories", userID, transactionType, len(summaries))
 	for _, s := range summaries {
 		log.Printf("Category: %s (ID: %d), Amount: %f, Count: %d", s.CategoryName, s.CategoryID, s.TotalAmount, s.Count)
 	}
-	
+
 	c.JSON(http.StatusOK, summaries)
 }
 
@@ -324,7 +328,7 @@ func getDailySummary(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	startDate := c.DefaultQuery("startDate", time.Now().AddDate(0, 0, -30).Format("2006-01-02"))
 	endDate := c.DefaultQuery("endDate", time.Now().Format("2006-01-02"))
-	
+
 	query := `
 		SELECT 
 			DATE(date) as date,
@@ -336,10 +340,10 @@ func getDailySummary(c *gin.Context) {
 		GROUP BY DATE(date)
 		ORDER BY date DESC
 	`
-	
+
 	var summaries []DailySummary
 	db.Raw(query, userID, startDate, endDate).Scan(&summaries)
-	
+
 	c.JSON(http.StatusOK, summaries)
 }
 
@@ -350,13 +354,13 @@ func getBudget(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	year, _ := strconv.Atoi(c.Param("year"))
 	month, _ := strconv.Atoi(c.Param("month"))
-	
+
 	var budget Budget
 	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&budget).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found"})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, budget)
 }
 
@@ -364,31 +368,31 @@ func getBudget(c *gin.Context) {
 func createBudget(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	var req BudgetRequest
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
 		return
 	}
-	
+
 	// 既存の予算があるかチェック
 	var existingBudget Budget
 	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, req.Year, req.Month).First(&existingBudget).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Budget already exists for this month"})
 		return
 	}
-	
+
 	budget := Budget{
 		UserID: userID.(uint),
 		Year:   req.Year,
 		Month:  req.Month,
 		Amount: req.Amount,
 	}
-	
+
 	if err := db.Create(&budget).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create budget: " + err.Error()})
 		return
 	}
-	
+
 	c.JSON(http.StatusCreated, budget)
 }
 
@@ -397,27 +401,27 @@ func updateBudget(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id := c.Param("id")
 	var budget Budget
-	
+
 	if err := db.Where("user_id = ?", userID).First(&budget, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Budget not found"})
 		return
 	}
-	
+
 	var req BudgetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
 		return
 	}
-	
+
 	budget.Year = req.Year
 	budget.Month = req.Month
 	budget.Amount = req.Amount
-	
+
 	if err := db.Save(&budget).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update budget: " + err.Error()})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, budget)
 }
 
@@ -425,24 +429,24 @@ func updateBudget(c *gin.Context) {
 func deleteBudget(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id := c.Param("id")
-	
+
 	if err := db.Where("user_id = ?", userID).Delete(&Budget{}, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete budget: " + err.Error()})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"message": "Budget deleted successfully"})
 }
 
 // 全ての月次予算を削除（廃止機能のクリーンアップ用）
 func deleteAllMonthlyBudgets(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	
+
 	if err := db.Where("user_id = ?", userID).Delete(&Budget{}).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete all monthly budgets: " + err.Error()})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"message": "All monthly budgets deleted successfully"})
 }
 
@@ -452,12 +456,12 @@ func deleteAllMonthlyBudgets(c *gin.Context) {
 func getFixedExpenses(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	var fixedExpenses []FixedExpense
-	
+
 	if err := db.Preload("Category").Where("user_id = ?", userID).Order("name ASC").Find(&fixedExpenses).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch fixed expenses: " + err.Error()})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, fixedExpenses)
 }
 
@@ -465,16 +469,16 @@ func getFixedExpenses(c *gin.Context) {
 func createFixedExpense(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	var req FixedExpenseRequest
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
 		return
 	}
-	
+
 	// デバッグログ
-	log.Printf("Creating fixed expense - Name: %s, Amount: %f, Type: %s, CategoryID: %v", 
+	log.Printf("Creating fixed expense - Name: %s, Amount: %f, Type: %s, CategoryID: %v",
 		req.Name, req.Amount, req.Type, req.CategoryID)
-	
+
 	fixedExpense := FixedExpense{
 		UserID:      userID.(uint),
 		Name:        req.Name,
@@ -484,20 +488,20 @@ func createFixedExpense(c *gin.Context) {
 		Description: req.Description,
 		IsActive:    true,
 	}
-	
+
 	// IsActiveが明示的に設定されている場合は使用
 	if req.IsActive != nil {
 		fixedExpense.IsActive = *req.IsActive
 	}
-	
+
 	if err := db.Create(&fixedExpense).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create fixed expense: " + err.Error()})
 		return
 	}
-	
+
 	// 固定収支作成時に当月の取引を生成（毎月1日に実行される想定）
 	createFixedTransactionForMonth(userID.(uint), fixedExpense)
-	
+
 	// カテゴリ情報を含めて返す
 	db.Preload("Category").First(&fixedExpense, fixedExpense.ID)
 	c.JSON(http.StatusCreated, fixedExpense)
@@ -508,33 +512,33 @@ func updateFixedExpense(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id := c.Param("id")
 	var fixedExpense FixedExpense
-	
+
 	if err := db.Where("user_id = ?", userID).First(&fixedExpense, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Fixed expense not found"})
 		return
 	}
-	
+
 	var req FixedExpenseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
 		return
 	}
-	
+
 	fixedExpense.Name = req.Name
 	fixedExpense.Amount = req.Amount
 	fixedExpense.Type = req.Type
 	fixedExpense.CategoryID = req.CategoryID
 	fixedExpense.Description = req.Description
-	
+
 	if req.IsActive != nil {
 		fixedExpense.IsActive = *req.IsActive
 	}
-	
+
 	if err := db.Save(&fixedExpense).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update fixed expense: " + err.Error()})
 		return
 	}
-	
+
 	// カテゴリ情報を含めて返す
 	db.Preload("Category").First(&fixedExpense, fixedExpense.ID)
 	c.JSON(http.StatusOK, fixedExpense)
@@ -544,14 +548,14 @@ func updateFixedExpense(c *gin.Context) {
 func deleteFixedExpense(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id := c.Param("id")
-	
+
 	// 固定費が存在するかチェック
 	var fixedExpense FixedExpense
 	if err := db.Where("user_id = ?", userID).First(&fixedExpense, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Fixed expense not found"})
 		return
 	}
-	
+
 	// 固定費から自動生成された取引を削除
 	var description string
 	if fixedExpense.Type == "income" {
@@ -559,23 +563,21 @@ func deleteFixedExpense(c *gin.Context) {
 	} else {
 		description = "固定支出: " + fixedExpense.Name
 	}
-	
+
 	// 関連する自動生成取引を削除
-	if err := db.Where("user_id = ? AND category_id = ? AND type = ? AND description = ?", 
+	if err := db.Where("user_id = ? AND category_id = ? AND type = ? AND description = ?",
 		userID, fixedExpense.CategoryID, fixedExpense.Type, description).Delete(&Transaction{}).Error; err != nil {
 		log.Printf("Failed to delete related transactions for fixed expense %d: %v", fixedExpense.ID, err)
 	}
-	
+
 	// 固定費を削除
 	if err := db.Delete(&fixedExpense).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete fixed expense: " + err.Error()})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"message": "Fixed expense deleted successfully"})
 }
-
-
 
 // 予算分析関連ハンドラー
 
@@ -584,31 +586,31 @@ func getBudgetAnalysis(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	year, _ := strconv.Atoi(c.Param("year"))
 	month, _ := strconv.Atoi(c.Param("month"))
-	
+
 	// 常にカテゴリ別予算の合計を使用（月次予算は廃止）
 	var budgetAmount float64
 	db.Model(&CategoryBudget{}).Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Select("COALESCE(SUM(amount), 0)").Scan(&budgetAmount)
-	
+
 	// 当月の支出取得（固定費から自動生成された取引も含む）
 	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
-	
+
 	var currentSpending float64
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&currentSpending)
-	
+
 	// 固定支出合計取得（表示用）- 固定収入は含めない
 	var totalFixedExpenses float64
 	db.Model(&FixedExpense{}).Where("user_id = ? AND type = ? AND is_active = ?", userID, "expense", true).Select("COALESCE(SUM(amount), 0)").Scan(&totalFixedExpenses)
-	
+
 	// 残り予算計算（固定費は既にcurrentSpendingに含まれているので重複計算しない）
 	remainingBudget := budgetAmount - currentSpending
-	
+
 	// 予算使用率計算
 	budgetUtilization := float64(0)
 	if budgetAmount > 0 {
 		budgetUtilization = (currentSpending / budgetAmount) * 100
 	}
-	
+
 	// 残り日数計算
 	now := time.Now()
 	var daysRemaining int
@@ -621,25 +623,25 @@ func getBudgetAnalysis(c *gin.Context) {
 	} else {
 		daysRemaining = int(endDate.Sub(startDate).Hours()/24) + 1
 	}
-	
+
 	// 1日あたり使用可能金額計算
 	dailyAverage := float64(0)
 	if daysRemaining > 0 && remainingBudget > 0 {
 		dailyAverage = remainingBudget / float64(daysRemaining)
 	}
-	
+
 	analysis := BudgetAnalysis{
-		Year:              year,
-		Month:             month,
-		MonthlyBudget:     budgetAmount,
+		Year:               year,
+		Month:              month,
+		MonthlyBudget:      budgetAmount,
 		TotalFixedExpenses: totalFixedExpenses,
-		CurrentSpending:   currentSpending,
-		RemainingBudget:   remainingBudget,
-		BudgetUtilization: budgetUtilization,
-		DaysRemaining:     daysRemaining,
-		DailyAverage:      dailyAverage,
+		CurrentSpending:    currentSpending,
+		RemainingBudget:    remainingBudget,
+		BudgetUtilization:  budgetUtilization,
+		DaysRemaining:      daysRemaining,
+		DailyAverage:       dailyAverage,
 	}
-	
+
 	c.JSON(http.StatusOK, analysis)
 }
 
@@ -648,30 +650,30 @@ func getRemainingBudget(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	year, _ := strconv.Atoi(c.Param("year"))
 	month, _ := strconv.Atoi(c.Param("month"))
-	
+
 	// 常にカテゴリ別予算の合計を使用（月次予算は廃止）
 	var budgetAmount float64
 	db.Model(&CategoryBudget{}).Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Select("COALESCE(SUM(amount), 0)").Scan(&budgetAmount)
-	
+
 	if budgetAmount == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No category budgets found for this month"})
 		return
 	}
-	
+
 	// 固定支出合計取得（固定収入は含めない）
 	var totalFixedExpenses float64
 	db.Model(&FixedExpense{}).Where("user_id = ? AND type = ? AND is_active = ?", userID, "expense", true).Select("COALESCE(SUM(amount), 0)").Scan(&totalFixedExpenses)
-	
+
 	// 当月の支出取得
 	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
-	
+
 	var currentSpending float64
 	db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&currentSpending)
-	
+
 	// 残り予算計算
 	remainingBudget := budgetAmount - totalFixedExpenses - currentSpending
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"remainingBudget": remainingBudget,
 		"monthlyBudget":   budgetAmount,
@@ -683,40 +685,40 @@ func getRemainingBudget(c *gin.Context) {
 // 予算履歴取得（過去6ヶ月）
 func getBudgetHistory(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	
+
 	var history []BudgetHistory
 	now := time.Now()
-	
+
 	// 過去6ヶ月のデータを取得
 	for i := 5; i >= 0; i-- {
 		targetDate := now.AddDate(0, -i, 0)
 		year := targetDate.Year()
 		month := int(targetDate.Month())
-		
+
 		// 常にカテゴリ別予算の合計を使用（月次予算は廃止）
 		var budgetAmount float64
 		db.Model(&CategoryBudget{}).Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Select("COALESCE(SUM(amount), 0)").Scan(&budgetAmount)
-		
+
 		// 固定支出合計取得（固定収入は含めない）
 		var fixedExpenses float64
 		db.Model(&FixedExpense{}).Where("user_id = ? AND type = ? AND is_active = ?", userID, "expense", true).Select("COALESCE(SUM(amount), 0)").Scan(&fixedExpenses)
-		
+
 		// 実際の支出取得
 		startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 		endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
-		
+
 		var actualSpending float64
 		db.Model(&Transaction{}).Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startDate, endDate).Select("COALESCE(SUM(amount), 0)").Scan(&actualSpending)
-		
+
 		// 貯蓄率計算
 		savingsRate := float64(0)
 		if budgetAmount > 0 {
 			savingsRate = ((budgetAmount - actualSpending) / budgetAmount) * 100
 		}
-		
+
 		// 予算超過チェック
 		budgetExceeded := actualSpending > budgetAmount && budgetAmount > 0
-		
+
 		historyItem := BudgetHistory{
 			Year:           year,
 			Month:          month,
@@ -726,10 +728,10 @@ func getBudgetHistory(c *gin.Context) {
 			SavingsRate:    savingsRate,
 			BudgetExceeded: budgetExceeded,
 		}
-		
+
 		history = append(history, historyItem)
 	}
-	
+
 	c.JSON(http.StatusOK, history)
 }
 
@@ -740,31 +742,31 @@ func getCategoryBudgets(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	year, _ := strconv.Atoi(c.Param("year"))
 	month, _ := strconv.Atoi(c.Param("month"))
-	
+
 	var categoryBudgets []CategoryBudget
 	if err := db.Preload("Category").Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Find(&categoryBudgets).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch category budgets: " + err.Error()})
 		return
 	}
-	
+
 	// 各カテゴリ別予算の使用状況を計算
 	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
-	
+
 	for i := range categoryBudgets {
 		var spent float64
-		db.Model(&Transaction{}).Where("user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ?", 
+		db.Model(&Transaction{}).Where("user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ?",
 			userID, categoryBudgets[i].CategoryID, "expense", startDate, endDate).
 			Select("COALESCE(SUM(amount), 0)").Scan(&spent)
-		
+
 		categoryBudgets[i].Spent = spent
 		categoryBudgets[i].Remaining = categoryBudgets[i].Amount - spent
-		
+
 		if categoryBudgets[i].Amount > 0 {
 			categoryBudgets[i].UtilizationRate = (spent / categoryBudgets[i].Amount) * 100
 		}
 	}
-	
+
 	c.JSON(http.StatusOK, categoryBudgets)
 }
 
@@ -772,20 +774,20 @@ func getCategoryBudgets(c *gin.Context) {
 func createCategoryBudget(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	var req CategoryBudgetRequest
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
 		return
 	}
-	
+
 	// 既存の予算があるかチェック
 	var existingBudget CategoryBudget
-	if err := db.Where("user_id = ? AND category_id = ? AND year = ? AND month = ?", 
+	if err := db.Where("user_id = ? AND category_id = ? AND year = ? AND month = ?",
 		userID, req.CategoryID, req.Year, req.Month).First(&existingBudget).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Budget already exists for this category and month"})
 		return
 	}
-	
+
 	categoryBudget := CategoryBudget{
 		UserID:     userID.(uint),
 		CategoryID: req.CategoryID,
@@ -793,12 +795,12 @@ func createCategoryBudget(c *gin.Context) {
 		Month:      req.Month,
 		Amount:     req.Amount,
 	}
-	
+
 	if err := db.Create(&categoryBudget).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create category budget: " + err.Error()})
 		return
 	}
-	
+
 	// カテゴリ情報を含めて返す
 	db.Preload("Category").First(&categoryBudget, categoryBudget.ID)
 	c.JSON(http.StatusCreated, categoryBudget)
@@ -809,28 +811,28 @@ func updateCategoryBudget(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id := c.Param("id")
 	var categoryBudget CategoryBudget
-	
+
 	if err := db.Where("user_id = ?", userID).First(&categoryBudget, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Category budget not found"})
 		return
 	}
-	
+
 	var req CategoryBudgetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data: " + err.Error()})
 		return
 	}
-	
+
 	categoryBudget.CategoryID = req.CategoryID
 	categoryBudget.Year = req.Year
 	categoryBudget.Month = req.Month
 	categoryBudget.Amount = req.Amount
-	
+
 	if err := db.Save(&categoryBudget).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update category budget: " + err.Error()})
 		return
 	}
-	
+
 	// カテゴリ情報を含めて返す
 	db.Preload("Category").First(&categoryBudget, categoryBudget.ID)
 	c.JSON(http.StatusOK, categoryBudget)
@@ -840,12 +842,12 @@ func updateCategoryBudget(c *gin.Context) {
 func deleteCategoryBudget(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	id := c.Param("id")
-	
+
 	if err := db.Where("user_id = ?", userID).Delete(&CategoryBudget{}, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete category budget: " + err.Error()})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"message": "Category budget deleted successfully"})
 }
 
@@ -854,38 +856,38 @@ func getCategoryBudgetAnalysis(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	year, _ := strconv.Atoi(c.Param("year"))
 	month, _ := strconv.Atoi(c.Param("month"))
-	
+
 	// カテゴリ別予算を取得
 	var categoryBudgets []CategoryBudget
 	db.Preload("Category").Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Find(&categoryBudgets)
-	
+
 	// 予算が設定されていない場合は空の配列を返す
 	if len(categoryBudgets) == 0 {
 		c.JSON(http.StatusOK, []CategoryBudgetAnalysis{})
 		return
 	}
-	
+
 	var analysis []CategoryBudgetAnalysis
 	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
-	
+
 	for _, budget := range categoryBudgets {
 		var spentAmount float64
 		var transactionCount int64
-		
-		db.Model(&Transaction{}).Where("user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ?", 
+
+		db.Model(&Transaction{}).Where("user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ?",
 			userID, budget.CategoryID, "expense", startDate, endDate).
 			Select("COALESCE(SUM(amount), 0)").Scan(&spentAmount)
-		
-		db.Model(&Transaction{}).Where("user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ?", 
+
+		db.Model(&Transaction{}).Where("user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ?",
 			userID, budget.CategoryID, "expense", startDate, endDate).Count(&transactionCount)
-		
+
 		remainingAmount := budget.Amount - spentAmount
 		utilizationRate := float64(0)
 		if budget.Amount > 0 {
 			utilizationRate = (spentAmount / budget.Amount) * 100
 		}
-		
+
 		analysisItem := CategoryBudgetAnalysis{
 			CategoryID:       budget.CategoryID,
 			CategoryName:     budget.Category.Name,
@@ -898,145 +900,275 @@ func getCategoryBudgetAnalysis(c *gin.Context) {
 			IsOverBudget:     spentAmount > budget.Amount,
 			TransactionCount: transactionCount,
 		}
-		
+
 		analysis = append(analysis, analysisItem)
 	}
-	
+
 	c.JSON(http.StatusOK, analysis)
 }
 
-// 月次予算レポート取得
-func getMonthlyBudgetReport(c *gin.Context) {
+// 支出予測
+func getSpendingPrediction(c *gin.Context) {
 	userID, _ := c.Get("userID")
-	year, _ := strconv.Atoi(c.Param("year"))
-	month, _ := strconv.Atoi(c.Param("month"))
-	
-	// カテゴリ別予算を取得
-	var categoryBudgets []CategoryBudget
-	db.Preload("Category").Where("user_id = ? AND year = ? AND month = ?", userID, year, month).Find(&categoryBudgets)
-	
-	startDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
-	endDate := startDate.AddDate(0, 1, 0).Add(-time.Second)
-	
-	var categories []map[string]interface{}
-	var totalBudget, totalSpent float64
-	
-	for _, budget := range categoryBudgets {
-		var spentAmount float64
-		db.Model(&Transaction{}).Where("user_id = ? AND category_id = ? AND type = ? AND date BETWEEN ? AND ?", 
-			userID, budget.CategoryID, "expense", startDate, endDate).
-			Select("COALESCE(SUM(amount), 0)").Scan(&spentAmount)
-		
-		percentage := float64(0)
-		if budget.Amount > 0 {
-			percentage = (spentAmount / budget.Amount) * 100
-		}
-		
-		status := "exact"
-		if spentAmount > budget.Amount {
-			status = "over"
-		} else if spentAmount < budget.Amount {
-			status = "under"
-		}
-		
-		category := map[string]interface{}{
-			"id":           strconv.Itoa(int(budget.CategoryID)),
-			"name":         budget.Category.Name,
-			"budgetAmount": budget.Amount,
-			"actualAmount": spentAmount,
-			"percentage":   percentage,
-			"status":       status,
-		}
-		
-		categories = append(categories, category)
-		totalBudget += budget.Amount
-		totalSpent += spentAmount
+
+	yearParam := c.DefaultQuery("year", strconv.Itoa(time.Now().Year()))
+	monthParam := c.DefaultQuery("month", strconv.Itoa(int(time.Now().Month())))
+
+	year, err := strconv.Atoi(yearParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid year parameter"})
+		return
 	}
-	
-	overallStatus := "exact"
-	if totalSpent > totalBudget {
-		overallStatus = "over"
-	} else if totalSpent < totalBudget {
-		overallStatus = "under"
+
+	month, err := strconv.Atoi(monthParam)
+	if err != nil || month < 1 || month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid month parameter"})
+		return
 	}
-	
-	report := map[string]interface{}{
-		"month":         strconv.Itoa(month),
-		"year":          year,
-		"categories":    categories,
-		"totalBudget":   totalBudget,
-		"totalSpent":    totalSpent,
-		"overallStatus": overallStatus,
+
+	location := time.UTC
+	startOfMonth := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, location)
+	endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Second)
+
+	now := time.Now()
+	isCurrentMonth := now.Year() == year && now.Month() == time.Month(month)
+	today := endOfMonth
+	if isCurrentMonth {
+		today = now
 	}
-	
-	c.JSON(http.StatusOK, report)
+
+	var monthlyTransactions []Transaction
+	if err := db.Where("user_id = ? AND type = ? AND date BETWEEN ? AND ?", userID, "expense", startOfMonth, endOfMonth).
+		Order("date ASC").Find(&monthlyTransactions).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch transactions: " + err.Error()})
+		return
+	}
+
+	expenseTransactions := make([]Transaction, 0, len(monthlyTransactions))
+	for _, transaction := range monthlyTransactions {
+		if isFixedTransactionDescription(transaction.Description) {
+			continue
+		}
+		expenseTransactions = append(expenseTransactions, transaction)
+	}
+
+	daysInMonth := endOfMonth.Day()
+	dailySpending := make(map[string]float64, daysInMonth)
+	for day := 1; day <= daysInMonth; day++ {
+		dateKey := fmt.Sprintf("%04d-%02d-%02d", year, month, day)
+		dailySpending[dateKey] = 0
+	}
+
+	var currentSpending float64
+	for _, transaction := range expenseTransactions {
+		dateKey := transaction.Date.Format("2006-01-02")
+		dailySpending[dateKey] += transaction.Amount
+		if !transaction.Date.After(today) {
+			currentSpending += transaction.Amount
+		}
+	}
+
+	currentDay := daysInMonth
+	if isCurrentMonth {
+		currentDay = now.Day()
+		if currentDay < 1 {
+			currentDay = 1
+		}
+	}
+
+	totalSpent := 0.0
+	spentAmounts := make([]float64, 0, currentDay)
+	activeDayCount := 0
+	for day := 1; day <= currentDay; day++ {
+		dateKey := fmt.Sprintf("%04d-%02d-%02d", year, month, day)
+		amount := dailySpending[dateKey]
+		totalSpent += amount
+		spentAmounts = append(spentAmounts, amount)
+		if amount > 0 {
+			activeDayCount++
+		}
+	}
+
+	predictions := make([]float64, 0, 4)
+	dailyAverage := 0.0
+	if currentDay > 0 {
+		dailyAverage = totalSpent / float64(currentDay)
+		predictions = append(predictions, dailyAverage*float64(daysInMonth))
+	}
+
+	if activeDayCount > 0 {
+		activeDayAverage := totalSpent / float64(activeDayCount)
+		estimatedActiveDays := math.Max(float64(activeDayCount), float64(daysInMonth)*0.6)
+		predictions = append(predictions, activeDayAverage*estimatedActiveDays)
+	}
+
+	historicalStart := startOfMonth.AddDate(0, -3, 0)
+	var historicalTransactions []Transaction
+	if err := db.Where("user_id = ? AND type = ? AND date >= ? AND date < ?", userID, "expense", historicalStart, startOfMonth).
+		Order("date ASC").Find(&historicalTransactions).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch historical transactions: " + err.Error()})
+		return
+	}
+
+	weeklyPattern := calculateWeeklyPattern(historicalTransactions)
+	if isCurrentMonth && hasPositivePattern(weeklyPattern) {
+		weeklyPrediction := totalSpent
+		for day := currentDay + 1; day <= daysInMonth; day++ {
+			futureDate := time.Date(year, time.Month(month), day, 0, 0, 0, 0, location)
+			dayOfWeek := int(futureDate.Weekday())
+			weeklyPrediction += weeklyPattern[dayOfWeek]
+		}
+		predictions = append(predictions, weeklyPrediction)
+	}
+
+	trend, recentAverage, earlierAverage := analyzeSpendingTrend(spentAmounts)
+	if len(spentAmounts) >= 7 && currentDay > 0 {
+		trendMultiplier := 1.0
+		if earlierAverage > 0 {
+			trendMultiplier = recentAverage / earlierAverage
+		}
+		trendPrediction := (totalSpent / float64(currentDay)) * float64(daysInMonth) * trendMultiplier
+		predictions = append(predictions, trendPrediction)
+	}
+
+	predictedTotal := totalSpent
+	if len(predictions) > 0 {
+		sort.Float64s(predictions)
+		predictedTotal = predictions[len(predictions)/2]
+	}
+
+	if predictedTotal < totalSpent {
+		predictedTotal = totalSpent
+	}
+
+	confidence := calculatePredictionConfidence(currentDay)
+	monthlyProgress := 0.0
+	if daysInMonth > 0 {
+		monthlyProgress = (float64(currentDay) / float64(daysInMonth)) * 100
+	}
+
+	remainingDays := daysInMonth - currentDay
+	if remainingDays < 0 {
+		remainingDays = 0
+	}
+
+	response := SpendingPrediction{
+		Year:            year,
+		Month:           month,
+		CurrentSpending: currentSpending,
+		PredictedTotal:  predictedTotal,
+		DailyAverage:    dailyAverage,
+		RemainingDays:   remainingDays,
+		Confidence:      confidence,
+		Trend:           trend,
+		WeeklyPattern:   weeklyPattern,
+		MonthlyProgress: monthlyProgress,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
-// 予算設定継続（予算設定は保持し、使用済み金額のみリセット）
-func continueBudgetSettings(c *gin.Context) {
-	userID, _ := c.Get("userID")
-	year, _ := strconv.Atoi(c.Param("year"))
-	month, _ := strconv.Atoi(c.Param("month"))
-	
-	// 前月の予算設定を取得
-	prevMonth := month - 1
-	prevYear := year
-	if prevMonth == 0 {
-		prevMonth = 12
-		prevYear = year - 1
+func calculateWeeklyPattern(transactions []Transaction) []float64 {
+	weeklySpending := make([]float64, 7)
+	weeklyCounts := make([]int, 7)
+
+	for _, transaction := range transactions {
+		if isFixedTransactionDescription(transaction.Description) {
+			continue
+		}
+
+		dayOfWeek := int(transaction.Date.Weekday())
+		weeklySpending[dayOfWeek] += transaction.Amount
+		weeklyCounts[dayOfWeek]++
 	}
-	
-	// 前月のカテゴリ別予算を取得
-	var prevCategoryBudgets []CategoryBudget
-	db.Where("user_id = ? AND year = ? AND month = ?", userID, prevYear, prevMonth).Find(&prevCategoryBudgets)
-	
-	// 今月の予算設定を作成（既存の予算設定は保持）
-	for _, prevBudget := range prevCategoryBudgets {
-		// 既存の予算があるかチェック
-		var existingBudget CategoryBudget
-		if err := db.Where("user_id = ? AND category_id = ? AND year = ? AND month = ?", 
-			userID, prevBudget.CategoryID, year, month).First(&existingBudget).Error; err != nil {
-			// 存在しない場合は新規作成（予算設定を継続）
-			newBudget := CategoryBudget{
-				UserID:     userID.(uint),
-				CategoryID: prevBudget.CategoryID,
-				Year:       year,
-				Month:      month,
-				Amount:     prevBudget.Amount,
-			}
-			db.Create(&newBudget)
+
+	for index := range weeklySpending {
+		if weeklyCounts[index] > 0 {
+			weeklySpending[index] = weeklySpending[index] / float64(weeklyCounts[index])
 		} else {
-			// 既存の予算がある場合は金額を更新（予算設定を保持）
-			existingBudget.Amount = prevBudget.Amount
-			db.Save(&existingBudget)
+			weeklySpending[index] = 0
 		}
 	}
-	
-	// 前月の月次予算も継続（既存の予算設定は保持）
-	var prevBudget Budget
-	if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, prevYear, prevMonth).First(&prevBudget).Error; err == nil {
-		var existingBudget Budget
-		if err := db.Where("user_id = ? AND year = ? AND month = ?", userID, year, month).First(&existingBudget).Error; err != nil {
-			// 存在しない場合は新規作成
-			newBudget := Budget{
-				UserID: userID.(uint),
-				Year:   year,
-				Month:  month,
-				Amount: prevBudget.Amount,
-			}
-			db.Create(&newBudget)
-		} else {
-			// 既存の予算がある場合は金額を更新（予算設定を保持）
-			existingBudget.Amount = prevBudget.Amount
-			db.Save(&existingBudget)
+
+	return weeklySpending
+}
+
+func hasPositivePattern(pattern []float64) bool {
+	for _, value := range pattern {
+		if value > 0 {
+			return true
 		}
 	}
-	
-	// 注意: 使用済み金額（実際の支出）は取引データに基づいて計算されるため、
-	// 月が変わると自動的に新しい月の支出として計算される
-	// 予算設定自体は削除されず、継続される
-	
-	c.JSON(http.StatusOK, gin.H{"message": "Budget settings continued successfully - spending amounts will reset automatically for new month"})
+	return false
+}
+
+func analyzeSpendingTrend(spentAmounts []float64) (string, float64, float64) {
+	if len(spentAmounts) < 7 {
+		return "stable", 0, 0
+	}
+
+	recentSlice := spentAmounts[len(spentAmounts)-3:]
+	earliestIndex := len(spentAmounts) - 7
+	if earliestIndex < 0 {
+		earliestIndex = 0
+	}
+	earliestEnd := len(spentAmounts) - 4
+	earliestSlice := spentAmounts[earliestIndex:earliestEnd]
+
+	recentAverage := mean(recentSlice)
+	earliestAverage := mean(earliestSlice)
+
+	trend := "stable"
+	if earliestAverage > 0 {
+		switch {
+		case recentAverage > earliestAverage*1.2:
+			trend = "increasing"
+		case recentAverage < earliestAverage*0.8:
+			trend = "decreasing"
+		}
+	}
+
+	return trend, recentAverage, earliestAverage
+}
+
+func mean(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+
+	sum := 0.0
+	for _, value := range values {
+		sum += value
+	}
+
+	return sum / float64(len(values))
+}
+
+func calculatePredictionConfidence(currentDay int) string {
+	switch {
+	case currentDay >= 15:
+		return "high"
+	case currentDay >= 7:
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func isFixedTransactionDescription(description string) bool {
+	trimmed := strings.TrimSpace(description)
+	if trimmed == "" {
+		return false
+	}
+
+	prefixes := []string{"固定収支:", "固定支出:", "固定収入:"}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // 固定収支の取引を指定月に生成する関数（バッチ処理用）
@@ -1045,28 +1177,28 @@ func createFixedTransactionForMonth(userID uint, fixedExpense FixedExpense) bool
 		log.Printf("[BATCH] Skipping inactive fixed expense: %s (ID: %d)", fixedExpense.Name, fixedExpense.ID)
 		return false
 	}
-	
+
 	now := time.Now()
 	// 毎月1日に設定
 	firstDayOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	
+
 	description := "固定収支: " + fixedExpense.Name
 	if fixedExpense.Type == "income" {
 		description = "固定収入: " + fixedExpense.Name
 	} else {
 		description = "固定支出: " + fixedExpense.Name
 	}
-	
+
 	// 今月に同じ固定収支からの取引が既に存在するかチェック
 	var existingCount int64
 	startOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	endOfMonth := startOfMonth.AddDate(0, 1, 0).Add(-time.Second)
-	
+
 	db.Model(&Transaction{}).Where(
 		"user_id = ? AND category_id = ? AND type = ? AND amount = ? AND description = ? AND date BETWEEN ? AND ?",
 		userID, fixedExpense.CategoryID, fixedExpense.Type, fixedExpense.Amount, description, startOfMonth, endOfMonth,
 	).Count(&existingCount)
-	
+
 	// 既存の取引がない場合のみ新しい取引を生成
 	if existingCount == 0 {
 		transaction := Transaction{
@@ -1077,13 +1209,13 @@ func createFixedTransactionForMonth(userID uint, fixedExpense FixedExpense) bool
 			Description: description,
 			Date:        firstDayOfMonth,
 		}
-		
+
 		if err := db.Create(&transaction).Error; err != nil {
-			log.Printf("[BATCH] ERROR: Failed to create transaction for %s (ID: %d): %v", 
+			log.Printf("[BATCH] ERROR: Failed to create transaction for %s (ID: %d): %v",
 				fixedExpense.Name, fixedExpense.ID, err)
 			return false
 		} else {
-			log.Printf("[BATCH] Created transaction: %s, ¥%.0f on %s", 
+			log.Printf("[BATCH] Created transaction: %s, ¥%.0f on %s",
 				fixedExpense.Name, fixedExpense.Amount, firstDayOfMonth.Format("2006-01-02"))
 			return true
 		}
@@ -1097,27 +1229,27 @@ func createFixedTransactionForMonth(userID uint, fixedExpense FixedExpense) bool
 func processMonthlyFixedTransactions() {
 	now := time.Now()
 	currentMonth := now.Format("2006-01")
-	
+
 	log.Printf("[BATCH] Starting fixed transaction processing for %s", currentMonth)
-	
+
 	var fixedExpenses []FixedExpense
 	if err := db.Where("is_active = ?", true).Find(&fixedExpenses).Error; err != nil {
 		log.Printf("[BATCH] ERROR: Failed to fetch active fixed expenses: %v", err)
 		return
 	}
-	
+
 	if len(fixedExpenses) == 0 {
 		log.Printf("[BATCH] No active fixed expenses found for processing")
 		return
 	}
-	
+
 	successCount := 0
 	for _, fixedExpense := range fixedExpenses {
 		if createFixedTransactionForMonth(fixedExpense.UserID, fixedExpense) {
 			successCount++
 		}
 	}
-	
-	log.Printf("[BATCH] Processing completed: %d/%d fixed expenses processed successfully", 
+
+	log.Printf("[BATCH] Processing completed: %d/%d fixed expenses processed successfully",
 		successCount, len(fixedExpenses))
 }
