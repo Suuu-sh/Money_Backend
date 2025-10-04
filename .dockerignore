@@ -1,0 +1,4 @@
+.git
+.gomodcache
+moneytracker.db
+*.log
