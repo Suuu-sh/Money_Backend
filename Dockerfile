@@ -21,6 +21,11 @@ RUN apt-get update \
 COPY --from=builder /app/money-tracker /usr/local/bin/money-tracker
 
 ENV PORT=8080
+ENV MYSQL_HOST=mysql
+ENV MYSQL_PORT=3306
+ENV MYSQL_USER=money
+ENV MYSQL_PASSWORD=moneypass
+ENV MYSQL_DATABASE=moneytracker
 EXPOSE 8080
 
 CMD ["money-tracker"]

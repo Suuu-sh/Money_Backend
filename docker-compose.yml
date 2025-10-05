@@ -4,8 +4,8 @@ services:
   api:
     build: .
     container_name: money-api
-    environment:
-      - PORT=8080
+    env_file:
+      - .env
     expose:
       - "8080"
     depends_on:
@@ -16,11 +16,13 @@ services:
     image: mysql:8.0
     container_name: money-mysql
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: moneytracker
-      MYSQL_USER: money
-      MYSQL_PASSWORD: moneypass
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
