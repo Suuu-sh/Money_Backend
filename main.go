@@ -96,7 +96,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8000"
 	}
 
 	log.Printf("MoneyTracker Server starting on port %s", port)
